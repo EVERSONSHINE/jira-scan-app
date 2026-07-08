@@ -214,11 +214,22 @@ export default function Home() {
           <h1 className="font-bold text-lg leading-tight">Shine Windows</h1>
           <p className="text-slate-400 text-xs">Controle de Produção</p>
         </div>
-        {issue && (
-          <button onClick={handleClear} className="text-slate-300 text-sm underline">
-            Nova leitura
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {issue ? (
+            <button onClick={handleClear} className="text-slate-300 text-sm underline">
+              Nova leitura
+            </button>
+          ) : (
+            <>
+              <a href="/expedicao" className="text-slate-300 text-xs underline whitespace-nowrap">
+                📺 Expedição
+              </a>
+              <a href="/resumo" className="text-slate-300 text-xs underline whitespace-nowrap">
+                📊 Resumo
+              </a>
+            </>
+          )}
+        </div>
       </header>
 
       <main className="flex-1 p-4 space-y-4">
