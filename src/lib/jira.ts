@@ -75,6 +75,32 @@ export async function startEpicIfPending(subtaskKey: string): Promise<string | n
   return epic.key;
 }
 
+export interface JiraIssueLite {
+  key: string;
+  fields: Record<string, unknown>;
+}
+
+/** Busca todas as issues de um JQL, paginando via nextPageToken (endpoint /search/jql) */
+export async function searchAllIssues(jql: string, fields: string[]): Promise<JiraIssueLite[]> {
+  const issues: JiraIssueLite[] = [];
+  let nextPageToken: string | null = null;
+  // Teto de 30 páginas (~3000 issues) como válvula de segurança
+  for (let page = 0; page < 30; page++) {
+    const params = new URLSearchParams({
+      jql,
+      maxResults: '100',
+      fields: fields.join(','),
+    });
+    if (nextPageToken) params.set('nextPageToken', nextPageToken);
+    const data = await jiraFetch(`/rest/api/3/search/jql?${params.toString()}`);
+    const batch = (data?.issues ?? []) as JiraIssueLite[];
+    issues.push(...batch);
+    nextPageToken = data?.nextPageToken ?? null;
+    if (!nextPageToken || batch.length === 0) break;
+  }
+  return issues;
+}
+
 /** Retorna mapa nome_normalizado → field_id para campos customizados */
 export async function getCustomFieldMap(): Promise<Record<string, string>> {
   const fields: Array<{ id: string; name: string; custom: boolean }> =
@@ -83,6 +109,19 @@ export async function getCustomFieldMap(): Promise<Record<string, string>> {
   for (const f of fields) {
     if (f.custom) map[normalize(f.name)] = f.id;
   }
+  return map;
+}
+
+let fieldMapCache: { map: Record<string, string>; at: number } | null = null;
+
+/**
+ * Versão memoizada de getCustomFieldMap para rotas de polling.
+ * Cache em módulo (lambda quente); a correção não depende dele.
+ */
+export async function getCustomFieldMapCached(ttlMs = 10 * 60_000): Promise<Record<string, string>> {
+  if (fieldMapCache && Date.now() - fieldMapCache.at < ttlMs) return fieldMapCache.map;
+  const map = await getCustomFieldMap();
+  fieldMapCache = { map, at: Date.now() };
   return map;
 }
 
