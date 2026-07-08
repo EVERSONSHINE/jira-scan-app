@@ -158,7 +158,11 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      showToast(`Status → ${statusName}`);
+      showToast(
+        data.epicUpdated
+          ? `Status → ${statusName} · Epic ${data.epicUpdated} → Em Andamento`
+          : `Status → ${statusName}`,
+      );
       // Recarrega transições disponíveis
       fetch(`/api/issue/${issue.key}/transitions`)
         .then((r) => r.json())

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jiraFetch } from '@/lib/jira';
+import { jiraFetch, normalize, startEpicIfPending } from '@/lib/jira';
 
 export async function GET(
   _req: NextRequest,
@@ -28,11 +28,28 @@ export async function POST(
   const { key } = await params;
   const { transitionId } = await req.json() as { transitionId: string };
   try {
+    // Descobre o status de destino antes de executar a transição
+    const data = await jiraFetch(`/rest/api/3/issue/${key}/transitions`);
+    const target = ((data?.transitions ?? []) as Array<{ id: string; to?: { name?: string } }>)
+      .find((t) => t.id === transitionId);
+    const toStatus = target?.to?.name ?? '';
+
     await jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
       method: 'POST',
       body: JSON.stringify({ transition: { id: transitionId } }),
     });
-    return NextResponse.json({ ok: true });
+
+    // Subtask concluída → Epic acima vai para "Em Andamento"
+    let epicUpdated: string | null = null;
+    if (normalize(toStatus) === 'concluido') {
+      try {
+        epicUpdated = await startEpicIfPending(key);
+      } catch {
+        // Falha na propagação não desfaz a transição da subtask
+      }
+    }
+
+    return NextResponse.json({ ok: true, epicUpdated });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

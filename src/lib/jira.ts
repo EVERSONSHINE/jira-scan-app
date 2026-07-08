@@ -28,8 +28,51 @@ export async function jiraFetch(path: string, init?: RequestInit) {
 }
 
 /** Remove acentos e converte para minúsculas para comparação de nomes de campos */
-function normalize(s: string) {
+export function normalize(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Sobe a hierarquia de pais (subtask → task → epic) até encontrar um Epic */
+export async function findEpicAbove(
+  key: string,
+): Promise<{ key: string; status: string } | null> {
+  let current = key;
+  for (let depth = 0; depth < 5; depth++) {
+    const issue = await jiraFetch(`/rest/api/3/issue/${current}?fields=parent`);
+    const parent = issue?.fields?.parent;
+    if (!parent) return null;
+    const typeName = normalize(String(parent.fields?.issuetype?.name ?? ''));
+    if (typeName === 'epic' || typeName === 'epico') {
+      return { key: parent.key, status: String(parent.fields?.status?.name ?? '') };
+    }
+    current = parent.key;
+  }
+  return null;
+}
+
+/**
+ * Quando uma subtask é concluída, move o Epic acima dela para "Em Andamento".
+ * Só age se o Epic ainda estiver em "Tarefas Pendentes", para não regredir
+ * um Epic já concluído/expedido. Retorna a key do Epic movido, ou null.
+ */
+export async function startEpicIfPending(subtaskKey: string): Promise<string | null> {
+  const epic = await findEpicAbove(subtaskKey);
+  if (!epic) return null;
+  if (normalize(epic.status) !== 'tarefas pendentes') return null;
+
+  const data = await jiraFetch(`/rest/api/3/issue/${epic.key}/transitions`);
+  const transitions = (data?.transitions ?? []) as Array<{
+    id: string;
+    to?: { name?: string };
+  }>;
+  const tr = transitions.find((t) => normalize(t.to?.name ?? '') === 'em andamento');
+  if (!tr) return null;
+
+  await jiraFetch(`/rest/api/3/issue/${epic.key}/transitions`, {
+    method: 'POST',
+    body: JSON.stringify({ transition: { id: tr.id } }),
+  });
+  return epic.key;
 }
 
 /** Retorna mapa nome_normalizado → field_id para campos customizados */
