@@ -41,9 +41,8 @@ export default function ExpedicaoPage() {
       inFlight.current = true;
       try {
         const res = await fetch('/api/expedicao', { signal: controller.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (json.error) throw new Error(json.error);
+        const json = await res.json().catch(() => null);
+        if (!res.ok || json?.error) throw new Error(json?.error ?? `HTTP ${res.status}`);
         setData(json);
         setErrorAt(null);
         setUpdatedAt(new Date().toLocaleTimeString('pt-BR'));

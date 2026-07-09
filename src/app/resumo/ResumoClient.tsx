@@ -152,9 +152,8 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
     setLoading(true);
     try {
       const res = await fetch('/api/resumo');
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      if (json.error) throw new Error(json.error);
+      const json = await res.json().catch(() => null);
+      if (!res.ok || json?.error) throw new Error(json?.error ?? `HTTP ${res.status}`);
       setData(json);
       setError(null);
       setUpdatedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
