@@ -3,13 +3,14 @@ import {
   jiraFetch,
   normalize,
   findEpicAbove,
-  searchAllIssues,
+  countEpicSubtasksByStatus,
   getCustomFieldMapCached,
   cfValue,
 } from '@/lib/jira';
-import { canonicalStatus } from '@/lib/status';
 
 export const dynamic = 'force-dynamic';
+// Changelog + contagem do épico fazem várias chamadas ao Jira; 10s padrão é pouco
+export const maxDuration = 60;
 
 /** Timestamp exato da última transição status → Expedido, via changelog */
 async function getExpeditedAt(key: string): Promise<string | null> {
@@ -33,35 +34,11 @@ async function getExpeditedAt(key: string): Promise<string | null> {
   return latest;
 }
 
-/** Conta subtasks do épico por status ("parentEpic" pega 2 níveis abaixo) */
+/** Conta subtasks do épico por status, no formato que a página consome */
 async function countEpicSubtasks(epicKey: string) {
-  let subs = await searchAllIssues(
-    `parentEpic = "${epicKey}" AND issuetype in subTaskIssueTypes()`,
-    ['status'],
-  );
-
-  // Fallback (instâncias onde parentEpic não resolve): epic → tasks → subtasks
-  if (subs.length === 0) {
-    const tasks = await searchAllIssues(`parent = "${epicKey}"`, ['status']);
-    const taskKeys = tasks.map((t) => t.key);
-    subs = [];
-    for (let i = 0; i < taskKeys.length; i += 50) {
-      const chunk = taskKeys.slice(i, i + 50);
-      const batch = await searchAllIssues(
-        `parent in (${chunk.join(',')}) AND issuetype in subTaskIssueTypes()`,
-        ['status'],
-      );
-      subs.push(...batch);
-    }
-  }
-
-  const porStatus: Record<string, number> = {};
-  for (const s of subs) {
-    const st = canonicalStatus(String((s.fields.status as { name?: string })?.name ?? ''));
-    porStatus[st] = (porStatus[st] ?? 0) + 1;
-  }
+  const { total, porStatus } = await countEpicSubtasksByStatus(epicKey);
   return {
-    total: subs.length,
+    total,
     expedido: porStatus['Expedido'] ?? 0,
     porStatus,
   };

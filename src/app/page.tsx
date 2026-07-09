@@ -160,7 +160,7 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
       showToast(
         data.epicUpdated
-          ? `Status → ${statusName} · Epic ${data.epicUpdated} → Em Andamento`
+          ? `Status → ${statusName} · Epic ${data.epicUpdated.key} → ${data.epicUpdated.status}`
           : `Status → ${statusName}`,
       );
       // Recarrega transições disponíveis

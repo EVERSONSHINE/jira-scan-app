@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jiraFetch, normalize, startEpicIfPending } from '@/lib/jira';
+import { jiraFetch, normalize, syncEpicStatus } from '@/lib/jira';
 
 export async function GET(
   _req: NextRequest,
@@ -39,11 +39,13 @@ export async function POST(
       body: JSON.stringify({ transition: { id: transitionId } }),
     });
 
-    // Subtask concluída → Epic acima vai para "Em Andamento"
-    let epicUpdated: string | null = null;
-    if (normalize(toStatus) === 'concluido') {
+    // Subtask Concluido/Expedido → sincroniza o status do Epic acima
+    // (todas concluídas → Concluido; todas expedidas → Expedido; senão inicia)
+    let epicUpdated: { key: string; status: string } | null = null;
+    const toNorm = normalize(toStatus);
+    if (toNorm === 'concluido' || toNorm === 'expedido') {
       try {
-        epicUpdated = await startEpicIfPending(key);
+        epicUpdated = await syncEpicStatus(key);
       } catch {
         // Falha na propagação não desfaz a transição da subtask
       }

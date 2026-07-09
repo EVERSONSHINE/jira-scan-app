@@ -1,3 +1,5 @@
+import { canonicalStatus } from './status';
+
 const BASE  = (process.env.JIRA_BASE_URL ?? '').replace(/\/$/, '');
 const EMAIL = process.env.JIRA_EMAIL ?? '';
 const TOKEN = process.env.JIRA_API_TOKEN ?? '';
@@ -51,28 +53,77 @@ export async function findEpicAbove(
 }
 
 /**
- * Quando uma subtask é concluída, move o Epic acima dela para "Em Andamento".
- * Só age se o Epic ainda estiver em "Tarefas Pendentes", para não regredir
- * um Epic já concluído/expedido. Retorna a key do Epic movido, ou null.
+ * Conta as subtasks de um Epic (2 níveis abaixo) por status canônico.
+ * Usa parentEpic; se a instância não resolver (retorna 0), cai no fallback
+ * em dois passos: parent = epic → tasks, depois parent in (tasks).
  */
-export async function startEpicIfPending(subtaskKey: string): Promise<string | null> {
+export async function countEpicSubtasksByStatus(
+  epicKey: string,
+): Promise<{ total: number; porStatus: Record<string, number> }> {
+  let subs = await searchAllIssues(
+    `parentEpic = "${epicKey}" AND issuetype in subTaskIssueTypes()`,
+    ['status'],
+  );
+  if (subs.length === 0) {
+    const tasks = await searchAllIssues(`parent = "${epicKey}"`, ['status']);
+    const taskKeys = tasks.map((t) => t.key);
+    subs = [];
+    for (let i = 0; i < taskKeys.length; i += 50) {
+      const chunk = taskKeys.slice(i, i + 50);
+      const batch = await searchAllIssues(
+        `parent in (${chunk.join(',')}) AND issuetype in subTaskIssueTypes()`,
+        ['status'],
+      );
+      subs.push(...batch);
+    }
+  }
+  const porStatus: Record<string, number> = {};
+  for (const s of subs) {
+    const st = canonicalStatus(String((s.fields.status as { name?: string })?.name ?? ''));
+    porStatus[st] = (porStatus[st] ?? 0) + 1;
+  }
+  return { total: subs.length, porStatus };
+}
+
+/**
+ * Sincroniza o status do Epic com o das suas subtasks, chamado após uma
+ * subtask ser movida para Concluido ou Expedido:
+ *  - todas Expedido → Epic "Expedido"
+ *  - todas Concluido (ou além, i.e. Expedido) → Epic "Concluido"
+ *  - senão, se o Epic ainda está em "Tarefas Pendentes" → "Em Andamento"
+ * Nunca regride um Epic. Retorna { key, status } do Epic movido, ou null.
+ */
+export async function syncEpicStatus(
+  subtaskKey: string,
+): Promise<{ key: string; status: string } | null> {
   const epic = await findEpicAbove(subtaskKey);
   if (!epic) return null;
-  if (normalize(epic.status) !== 'tarefas pendentes') return null;
+
+  const { total, porStatus } = await countEpicSubtasksByStatus(epic.key);
+  const concluido = porStatus['Concluido'] ?? 0;
+  const expedido = porStatus['Expedido'] ?? 0;
+
+  let target: string | null = null;
+  if (total > 0 && expedido >= total) target = 'Expedido';
+  else if (total > 0 && concluido + expedido >= total) target = 'Concluido';
+  // Epic ainda não iniciado (fluxo de épico usa "Aberto") → "Em Andamento"
+  else if (canonicalStatus(epic.status) === 'Tarefas Pendentes') target = 'Em Andamento';
+
+  if (!target || normalize(epic.status) === normalize(target)) return null;
 
   const data = await jiraFetch(`/rest/api/3/issue/${epic.key}/transitions`);
   const transitions = (data?.transitions ?? []) as Array<{
     id: string;
     to?: { name?: string };
   }>;
-  const tr = transitions.find((t) => normalize(t.to?.name ?? '') === 'em andamento');
+  const tr = transitions.find((t) => normalize(t.to?.name ?? '') === normalize(target));
   if (!tr) return null;
 
   await jiraFetch(`/rest/api/3/issue/${epic.key}/transitions`, {
     method: 'POST',
     body: JSON.stringify({ transition: { id: tr.id } }),
   });
-  return epic.key;
+  return { key: epic.key, status: target };
 }
 
 export interface JiraIssueLite {

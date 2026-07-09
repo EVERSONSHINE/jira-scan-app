@@ -41,6 +41,7 @@ export default function ExpedicaoPage() {
       inFlight.current = true;
       try {
         const res = await fetch('/api/expedicao', { signal: controller.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const json = await res.json();
         if (json.error) throw new Error(json.error);
         setData(json);
@@ -48,7 +49,8 @@ export default function ExpedicaoPage() {
         setUpdatedAt(new Date().toLocaleTimeString('pt-BR'));
       } catch (e) {
         if (!(e instanceof DOMException && e.name === 'AbortError')) {
-          setErrorAt(new Date().toLocaleTimeString('pt-BR'));
+          const msg = e instanceof Error ? e.message : String(e);
+          setErrorAt(`${msg.slice(0, 60)} · ${new Date().toLocaleTimeString('pt-BR')}`);
         }
       } finally {
         inFlight.current = false;
