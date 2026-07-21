@@ -2,7 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 
 const POLL_MS = 15_000;
-const IDLE_AFTER_HOURS = 12;
+// Volta para "Aguardando expedição": 10 min após o épico ficar 100% expedido,
+// ou 30 min sem nenhum novo quadro expedido (expedição parada no meio)
+const COMPLETE_IDLE_MS = 10 * 60_000;
+const INACTIVE_IDLE_MS = 30 * 60_000;
 
 interface ExpedicaoData {
   idle: boolean;
@@ -69,7 +72,10 @@ export default function ExpedicaoPage() {
   const pct = total > 0 ? Math.round((expedido / total) * 100) : 0;
 
   const expeditedMs = data?.expeditedAt ? new Date(data.expeditedAt).getTime() : NaN;
-  const stale = !isNaN(expeditedMs) && Date.now() - expeditedMs > IDLE_AFTER_HOURS * 3_600_000;
+  const sinceLast = isNaN(expeditedMs) ? 0 : Date.now() - expeditedMs;
+  const stale =
+    !isNaN(expeditedMs) &&
+    (sinceLast > INACTIVE_IDLE_MS || (completo && sinceLast > COMPLETE_IDLE_MS));
   const showIdle = !data || data.idle || stale;
 
   return (

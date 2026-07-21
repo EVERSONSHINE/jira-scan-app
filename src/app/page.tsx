@@ -1,6 +1,7 @@
 'use client';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
+import { STATUS_ORDER } from '@/lib/status';
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
@@ -51,7 +52,7 @@ const STATUS_ACTIVE: Record<string, string> = {
   'Expedido':          'bg-blue-600   text-white border-blue-600',
 };
 
-const STATUSES = ['Tarefas Pendentes', 'Em Andamento', 'Concluido', 'Expedido'];
+const STATUSES: readonly string[] = STATUS_ORDER;
 
 function StatusBadge({ status }: { status: string }) {
   const s = STATUS_STYLES[status] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300' };
@@ -158,9 +159,10 @@ export default function Home() {
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
+      const cascata = (data.updated ?? []) as Array<{ key: string; status: string }>;
       showToast(
-        data.epicUpdated
-          ? `Status → ${statusName} · Epic ${data.epicUpdated.key} → ${data.epicUpdated.status}`
+        cascata.length > 0
+          ? `Status → ${statusName} · ${cascata.map((u) => `${u.key} → ${u.status}`).join(' · ')}`
           : `Status → ${statusName}`,
       );
       // Recarrega transições disponíveis
@@ -221,6 +223,9 @@ export default function Home() {
             </button>
           ) : (
             <>
+              <a href="/quadros" className="text-slate-300 text-xs underline whitespace-nowrap">
+                📦 Quadros
+              </a>
               <a href="/expedicao" className="text-slate-300 text-xs underline whitespace-nowrap">
                 📺 Expedição
               </a>

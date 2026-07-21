@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jiraFetch, normalize, syncEpicStatus } from '@/lib/jira';
+import { jiraFetch, normalize, cascadeStatus } from '@/lib/jira';
 
 export async function GET(
   _req: NextRequest,
@@ -39,19 +39,19 @@ export async function POST(
       body: JSON.stringify({ transition: { id: transitionId } }),
     });
 
-    // Subtask Concluido/Expedido → sincroniza o status do Epic acima
-    // (todas concluídas → Concluido; todas expedidas → Expedido; senão inicia)
-    let epicUpdated: { key: string; status: string } | null = null;
+    // Subtask Concluido/Expedido → cascata Task → Epic
+    // (todas concluídas → Concluido; todas expedidas → Expedido; alguma andou → Em Andamento)
+    let updated: Array<{ key: string; status: string; nivel: 'task' | 'epic' }> = [];
     const toNorm = normalize(toStatus);
     if (toNorm === 'concluido' || toNorm === 'expedido') {
       try {
-        epicUpdated = await syncEpicStatus(key);
+        updated = await cascadeStatus(key);
       } catch {
         // Falha na propagação não desfaz a transição da subtask
       }
     }
 
-    return NextResponse.json({ ok: true, epicUpdated });
+    return NextResponse.json({ ok: true, updated });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

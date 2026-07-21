@@ -1,4 +1,4 @@
-import { canonicalStatus } from './status';
+import { canonicalStatus, STATUS_ORDER } from './status';
 
 const BASE  = (process.env.JIRA_BASE_URL ?? '').replace(/\/$/, '');
 const EMAIL = process.env.JIRA_EMAIL ?? '';
@@ -85,45 +85,131 @@ export async function countEpicSubtasksByStatus(
   return { total: subs.length, porStatus };
 }
 
+/** Posição do status na ordem do processo (-1 para "Outros") */
+function statusRank(raw: string): number {
+  return (STATUS_ORDER as readonly string[]).indexOf(canonicalStatus(raw));
+}
+
+/** Status canônico dos filhos diretos de uma issue (JQL: parent = key) */
+async function getChildStatuses(
+  key: string,
+  onlySubtasks: boolean,
+): Promise<Array<{ key: string; status: string }>> {
+  const jql = onlySubtasks
+    ? `parent = "${key}" AND issuetype in subTaskIssueTypes()`
+    : `parent = "${key}"`;
+  const rows = await searchAllIssues(jql, ['status']);
+  return rows.map((r) => ({
+    key: r.key,
+    status: canonicalStatus(String((r.fields.status as { name?: string })?.name ?? '')),
+  }));
+}
+
 /**
- * Sincroniza o status do Epic com o das suas subtasks, chamado após uma
- * subtask ser movida para Concluido ou Expedido:
- *  - todas Expedido → Epic "Expedido"
- *  - todas Concluido (ou além, i.e. Expedido) → Epic "Concluido"
- *  - senão, se o Epic ainda está em "Tarefas Pendentes" → "Em Andamento"
- * Nunca regride um Epic. Retorna { key, status } do Epic movido, ou null.
+ * Decide o status-alvo de um pai a partir dos filhos:
+ *  - todos Expedido → "Expedido"
+ *  - todos Concluido ou além → "Concluido"
+ *  - algum filho já andou (Em Andamento/Concluido/Expedido) → "Em Andamento"
  */
-export async function syncEpicStatus(
-  subtaskKey: string,
-): Promise<{ key: string; status: string } | null> {
-  const epic = await findEpicAbove(subtaskKey);
-  if (!epic) return null;
+function rollupTarget(statuses: string[]): string | null {
+  const total = statuses.length;
+  if (total === 0) return null;
+  const expedido = statuses.filter((s) => s === 'Expedido').length;
+  const done = statuses.filter((s) => s === 'Concluido' || s === 'Expedido').length;
+  if (expedido === total) return 'Expedido';
+  if (done === total) return 'Concluido';
+  if (done > 0 || statuses.includes('Em Andamento')) return 'Em Andamento';
+  return null;
+}
 
-  const { total, porStatus } = await countEpicSubtasksByStatus(epic.key);
-  const concluido = porStatus['Concluido'] ?? 0;
-  const expedido = porStatus['Expedido'] ?? 0;
-
-  let target: string | null = null;
-  if (total > 0 && expedido >= total) target = 'Expedido';
-  else if (total > 0 && concluido + expedido >= total) target = 'Concluido';
-  // Epic ainda não iniciado (fluxo de épico usa "Aberto") → "Em Andamento"
-  else if (canonicalStatus(epic.status) === 'Tarefas Pendentes') target = 'Em Andamento';
-
-  if (!target || normalize(epic.status) === normalize(target)) return null;
-
-  const data = await jiraFetch(`/rest/api/3/issue/${epic.key}/transitions`);
+/**
+ * Transiciona a issue para o status-alvo, apenas para frente (nunca regride;
+ * "Aberto" conta como "Tarefas Pendentes" via canonicalStatus).
+ * Retorna o novo status, ou null se não aplicável/sem transição no workflow.
+ */
+async function transitionForward(
+  key: string,
+  currentStatus: string,
+  target: string,
+): Promise<string | null> {
+  if (statusRank(target) <= statusRank(currentStatus)) return null;
+  const data = await jiraFetch(`/rest/api/3/issue/${key}/transitions`);
   const transitions = (data?.transitions ?? []) as Array<{
     id: string;
     to?: { name?: string };
   }>;
   const tr = transitions.find((t) => normalize(t.to?.name ?? '') === normalize(target));
   if (!tr) return null;
-
-  await jiraFetch(`/rest/api/3/issue/${epic.key}/transitions`, {
+  await jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
     method: 'POST',
     body: JSON.stringify({ transition: { id: tr.id } }),
   });
-  return { key: epic.key, status: target };
+  return target;
+}
+
+/**
+ * Cascata de status após a transição de uma Subtask, nível a nível:
+ *  1. Task ← rollup das suas Subtasks diretas
+ *  2. Epic ← rollup das suas Tasks diretas (usando o status pós-transição
+ *     da Task, já que a busca do Jira pode ainda refletir o antigo)
+ * Regras: todas Expedido → Expedido; todas Concluido/Expedido → Concluido;
+ * alguma andou → Em Andamento. Nunca regride nenhum nível.
+ */
+export async function cascadeStatus(
+  subtaskKey: string,
+): Promise<Array<{ key: string; status: string; nivel: 'task' | 'epic' }>> {
+  const updated: Array<{ key: string; status: string; nivel: 'task' | 'epic' }> = [];
+
+  const issue = await jiraFetch(`/rest/api/3/issue/${subtaskKey}?fields=parent`);
+  const parent = issue?.fields?.parent;
+  if (!parent) return updated;
+
+  const parentType = normalize(String(parent.fields?.issuetype?.name ?? ''));
+  const parentIsEpic = parentType === 'epic' || parentType === 'epico';
+
+  let epicKey: string | null = null;
+  let epicStatus = '';
+  let taskKey: string | null = null;
+  let taskStatus = '';
+
+  if (parentIsEpic) {
+    epicKey = parent.key;
+    epicStatus = String(parent.fields?.status?.name ?? '');
+  } else {
+    taskKey = parent.key;
+    taskStatus = String(parent.fields?.status?.name ?? '');
+  }
+
+  if (taskKey) {
+    const subs = await getChildStatuses(taskKey, true);
+    const target = rollupTarget(subs.map((s) => s.status));
+    if (target) {
+      const moved = await transitionForward(taskKey, taskStatus, target);
+      if (moved) {
+        updated.push({ key: taskKey, status: moved, nivel: 'task' });
+        taskStatus = moved;
+      }
+    }
+    const epic = await findEpicAbove(taskKey);
+    if (epic) {
+      epicKey = epic.key;
+      epicStatus = epic.status;
+    }
+  }
+
+  if (epicKey) {
+    const children = await getChildStatuses(epicKey, false);
+    const statuses = children.map((c) =>
+      taskKey && c.key === taskKey ? canonicalStatus(taskStatus) : c.status,
+    );
+    const target = rollupTarget(statuses);
+    if (target) {
+      const moved = await transitionForward(epicKey, epicStatus, target);
+      if (moved) updated.push({ key: epicKey, status: moved, nivel: 'epic' });
+    }
+  }
+
+  return updated;
 }
 
 export interface JiraIssueLite {
