@@ -1,10 +1,20 @@
 // Sem imports de ./jira: este módulo roda no browser (client components),
 // e jira.ts usa Buffer/env no escopo do módulo.
 
-/** Volta para "Aguardando expedição" 10 min após o épico ficar 100% expedido */
+/**
+ * Quanto tempo a tela de expedição fica no ar antes de devolver a TV ao resumo.
+ * Contados desde a última transição para Expedido, não desde a última interação
+ * com a tela — ninguém precisa tocar no painel.
+ *
+ * Os dois casos coincidem em 10 min hoje, mas seguem separados de propósito:
+ * "acabou" e "parou no meio" são situações diferentes e já divergiram antes
+ * (a parada no meio era 30 min, tempo demais para uma TV de produção — meia
+ * hora de contador congelado quando a equipe saía e voltava).
+ */
+/** Épico 100% expedido */
 export const COMPLETE_IDLE_MS = 10 * 60_000;
-/** ...ou 30 min sem nenhum novo quadro expedido (expedição parada no meio) */
-export const INACTIVE_IDLE_MS = 30 * 60_000;
+/** Expedição parada no meio, ainda faltando quadros */
+export const INACTIVE_IDLE_MS = 10 * 60_000;
 
 /** Resposta de /api/expedicao */
 export interface ExpedicaoData {
