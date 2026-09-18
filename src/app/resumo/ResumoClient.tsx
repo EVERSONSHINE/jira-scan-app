@@ -171,12 +171,28 @@ const CARD_TYPO: Record<CardSize, {
   pad: string; cliente: string; meta: string; pct: string;
   bar: string; info: string; chip: string; maxLocais: number;
 }> = {
-  tv:        { pad: 'px-5 pt-4 pb-4',   cliente: 'text-2xl', meta: 'text-base',   pct: 'text-4xl', bar: 'h-4',   info: 'text-lg',     chip: 'text-base',   maxLocais: 6 },
+  // maxLocais na TV é 4 por geometria, não por gosto: com chips de 18px num card
+  // de ~360px, o 5º leva a linha a 3 alturas, o card a 288px, e 3 linhas de 288
+  // estouram os 1080p. O "+N" avisa que há mais; a lista completa está na tela
+  // de expedição, que é onde alguém de fato vai buscar a peça.
+  tv:        { pad: 'px-5 pt-4 pb-4',   cliente: 'text-2xl', meta: 'text-base',   pct: 'text-4xl', bar: 'h-4',   info: 'text-lg',     chip: 'text-lg',     maxLocais: 4 },
   tvCompact: { pad: 'px-3 pt-2 pb-2',   cliente: 'text-base',meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2',   info: 'text-[11px]', chip: 'text-[11px]', maxLocais: 3 },
   desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-sm',  meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2.5', info: 'text-[11px]', chip: 'text-[11px]', maxLocais: 6 },
 };
 
 interface Theme { card: string; muted: string; faint: string; divider: string }
+
+/**
+ * Ciano preenchido: é onde a peça está, o dado que manda alguém andar até um
+ * lugar, então precisa saltar. Fora do vocabulário de status de propósito —
+ * cinza/âmbar/verde/azul significam etapa e vermelho é alarme; ciano é o único
+ * hue que passou a separação CVD contra todos os cinco (skill dataviz).
+ * Contraste: chip vs card 12.3:1 na TV, 5.4:1 no desktop.
+ */
+const LOC_CHIP = {
+  tv:   'bg-cyan-300 text-cyan-950',
+  desk: 'bg-cyan-700 text-white',
+};
 
 /** Localizações não repetidas dos quadros do projeto */
 function Locais({ locais, size, theme, tv }: { locais: string[]; size: CardSize; theme: Theme; tv: boolean }) {
@@ -185,14 +201,17 @@ function Locais({ locais, size, theme, tv }: { locais: string[]; size: CardSize;
   const mostrados = locais.slice(0, t.maxLocais);
   const resto = locais.length - mostrados.length;
   return (
-    <p className={`flex flex-wrap items-center gap-1.5 mt-2 ${t.chip} ${theme.muted}`}>
-      <span aria-hidden>📍</span>
+    <p className={`flex flex-wrap items-center gap-1.5 mt-2 ${t.chip}`} aria-label="Localizações dos quadros">
+      <span className={tv ? 'text-cyan-300' : 'text-cyan-700'} aria-hidden>📍</span>
       {mostrados.map((l) => (
-        <span key={l} className={`rounded border px-1.5 font-mono ${tv ? 'border-slate-700' : 'border-slate-200'}`}>
+        <span
+          key={l}
+          className={`rounded px-2 py-0.5 font-mono font-bold tracking-wide ${tv ? LOC_CHIP.tv : LOC_CHIP.desk}`}
+        >
           {l}
         </span>
       ))}
-      {resto > 0 && <span className={theme.faint}>+{resto}</span>}
+      {resto > 0 && <span className={`font-semibold ${tv ? 'text-cyan-400' : 'text-cyan-700'}`}>+{resto}</span>}
     </p>
   );
 }

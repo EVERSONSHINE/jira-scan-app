@@ -20,8 +20,11 @@ function fmtDataHora(iso: string | null | undefined) {
 }
 
 /**
- * Onde estão os quadros que ainda faltam expedir — o que a equipe precisa
- * saber ao começar. Mais itens primeiro (ordem que vem da API).
+ * Onde estão os quadros que ainda faltam expedir — o dado que manda alguém
+ * andar até um lugar, então é o elemento mais luminoso da tela depois do
+ * contador. Ciano preenchido: fora do vocabulário de status (cinza/âmbar/
+ * verde/azul = etapa, vermelho = alarme) e o único hue que passou a separação
+ * CVD contra todos os cinco. Mais itens primeiro, ordem que vem da API.
  */
 function LocaisPendentes({ porLocal }: { porLocal: Array<{ loc: string; total: number }> }) {
   if (porLocal.length === 0) return null;
@@ -29,23 +32,29 @@ function LocaisPendentes({ porLocal }: { porLocal: Array<{ loc: string; total: n
   const resto = porLocal.length - mostrados.length;
   return (
     <div className="w-full max-w-5xl space-y-3">
-      <p className="text-xl md:text-2xl uppercase tracking-wider text-slate-500">
-        Falta buscar em
+      <p className="text-xl md:text-2xl uppercase tracking-wider text-cyan-400">
+        📍 Falta buscar em
       </p>
       <div className="flex flex-wrap justify-center gap-3">
         {mostrados.map(({ loc, total }) => (
           <span
             key={loc || '(sem local)'}
-            className="flex items-baseline gap-2 rounded-xl border border-slate-700 bg-slate-900 px-4 py-2"
+            className={`flex items-baseline gap-3 rounded-xl px-4 py-2 ${
+              loc ? 'bg-cyan-300' : 'border-2 border-cyan-700 bg-transparent'
+            }`}
           >
-            <span className={`text-2xl md:text-3xl font-semibold ${loc ? 'text-slate-100' : 'text-slate-500 italic'}`}>
+            <span className={`text-2xl md:text-4xl font-bold tracking-wide ${loc ? 'text-cyan-950' : 'text-cyan-600 italic'}`}>
               {loc || 'sem local'}
             </span>
-            <span className="text-2xl md:text-3xl font-bold tabular-nums text-amber-400">{total}</span>
+            <span className={`rounded-lg px-2 text-2xl md:text-4xl font-bold tabular-nums ${
+              loc ? 'bg-cyan-950 text-cyan-300' : 'text-cyan-600'
+            }`}>
+              {total}
+            </span>
           </span>
         ))}
         {resto > 0 && (
-          <span className="flex items-center rounded-xl px-4 py-2 text-2xl md:text-3xl text-slate-500">
+          <span className="flex items-center px-2 text-2xl md:text-3xl font-semibold text-cyan-600">
             +{resto} {resto === 1 ? 'local' : 'locais'}
           </span>
         )}
