@@ -169,15 +169,13 @@ type CardSize = 'tv' | 'tvCompact' | 'desk';
 
 const CARD_TYPO: Record<CardSize, {
   pad: string; cliente: string; meta: string; pct: string;
-  bar: string; info: string; chip: string; maxLocais: number;
+  bar: string; info: string; chip: string;
 }> = {
-  // maxLocais na TV é 4 por geometria, não por gosto: com chips de 18px num card
-  // de ~360px, o 5º leva a linha a 3 alturas, o card a 288px, e 3 linhas de 288
-  // estouram os 1080p. O "+N" avisa que há mais; a lista completa está na tela
-  // de expedição, que é onde alguém de fato vai buscar a peça.
-  tv:        { pad: 'px-5 pt-4 pb-4',   cliente: 'text-2xl', meta: 'text-base',   pct: 'text-4xl', bar: 'h-4',   info: 'text-lg',     chip: 'text-lg',     maxLocais: 4 },
-  tvCompact: { pad: 'px-3 pt-2 pb-2',   cliente: 'text-base',meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2',   info: 'text-[11px]', chip: 'text-[11px]', maxLocais: 3 },
-  desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-sm',  meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2.5', info: 'text-[11px]', chip: 'text-[11px]', maxLocais: 6 },
+  // Padding e info enxutos na TV: as duas linhas reservadas para localização
+  // custam altura, e ela sai daqui — não de cortar códigos de localização.
+  tv:        { pad: 'px-5 pt-3 pb-3',   cliente: 'text-2xl', meta: 'text-base',   pct: 'text-4xl', bar: 'h-4',   info: 'text-base',   chip: 'text-lg'     },
+  tvCompact: { pad: 'px-3 pt-2 pb-2',   cliente: 'text-base',meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2',   info: 'text-[11px]', chip: 'text-[11px]' },
+  desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-sm',  meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2.5', info: 'text-[11px]', chip: 'text-[11px]' },
 };
 
 interface Theme { card: string; muted: string; faint: string; divider: string }
@@ -194,24 +192,40 @@ const LOC_CHIP = {
   desk: 'bg-cyan-700 text-white',
 };
 
-/** Localizações não repetidas dos quadros do projeto */
-function Locais({ locais, size, theme, tv }: { locais: string[]; size: CardSize; theme: Theme; tv: boolean }) {
+/**
+ * Localizações não repetidas dos quadros do projeto.
+ *
+ * Na TV a faixa tem altura fixa de duas linhas de chip e corta o excedente, em
+ * vez de mostrar poucos chips e um "+N": vale mais ver o máximo de códigos que
+ * cabem do que saber que existem outros. Como o flex-wrap só põe chips inteiros
+ * numa linha, o corte nunca parte um chip pelo meio. A altura fixa também
+ * mantém todos os cards iguais, independente de quantos códigos cada projeto
+ * tem — é o que garante as 3 linhas de 5 dentro de 1080p.
+ */
+// 70px = 2 chips de 32px + o gap-1.5 (6px) entre as linhas. Medido, não estimado:
+// com 62px a segunda linha aparecia cortada pela metade.
+const LOC_ALTURA: Record<CardSize, string> = {
+  tv:        'h-[70px] overflow-hidden content-start',
+  tvCompact: 'h-[22px] overflow-hidden content-start',
+  desk:      '',
+};
+
+function Locais({ locais, size, tv }: { locais: string[]; size: CardSize; tv: boolean }) {
   if (locais.length === 0) return null;
   const t = CARD_TYPO[size];
-  const mostrados = locais.slice(0, t.maxLocais);
-  const resto = locais.length - mostrados.length;
   return (
-    <p className={`flex flex-wrap items-center gap-1.5 mt-2 ${t.chip}`} aria-label="Localizações dos quadros">
-      <span className={tv ? 'text-cyan-300' : 'text-cyan-700'} aria-hidden>📍</span>
-      {mostrados.map((l) => (
+    <p
+      className={`flex flex-wrap items-start gap-1.5 mt-2 ${t.chip} ${LOC_ALTURA[size]}`}
+      aria-label={`Localizações dos quadros: ${locais.join(', ')}`}
+    >
+      {locais.map((l) => (
         <span
           key={l}
-          className={`rounded px-2 py-0.5 font-mono font-bold tracking-wide ${tv ? LOC_CHIP.tv : LOC_CHIP.desk}`}
+          className={`rounded px-2 py-0.5 font-mono font-bold tracking-wide whitespace-nowrap ${tv ? LOC_CHIP.tv : LOC_CHIP.desk}`}
         >
           {l}
         </span>
       ))}
-      {resto > 0 && <span className={`font-semibold ${tv ? 'text-cyan-400' : 'text-cyan-700'}`}>+{resto}</span>}
     </p>
   );
 }
@@ -235,9 +249,9 @@ function ProjetoCard({
   return (
     <article className={`rounded-xl border overflow-hidden border-l-4 ${theme.card} ${URGENCY_STRIPE[p.urgency]}`}>
       <div className={t.pad}>
-        {/* Nome do cliente ocupa a linha inteira: é o que se lê de longe, e
-            truncar em uma linha cortava quase todos na TV */}
-        <p className={`font-semibold leading-tight line-clamp-2 ${t.cliente}`}>
+        {/* Nome numa linha só, truncando: a linha economizada vai para as
+            localizações, que é onde a informação vale mais na operação */}
+        <p className={`font-semibold leading-tight truncate ${t.cliente}`}>
           {p.cliente || p.summary || p.key}
         </p>
         <div className="flex items-baseline justify-between gap-2 mt-0.5">
@@ -249,7 +263,7 @@ function ProjetoCard({
           </span>
         </div>
 
-        <div className="flex items-center gap-2.5 mt-3">
+        <div className={`flex items-center gap-2.5 ${size === 'tv' ? 'mt-2' : 'mt-3'}`}>
           <span className={`font-bold tabular-nums ${t.pct}`}>{p.pct}%</span>
           <div className="flex-1">
             <StackedBar porStatus={p.counts.porStatus} total={p.counts.total} tv={tv} height={t.bar} />
@@ -267,7 +281,7 @@ function ProjetoCard({
             : p.duedate && <span className="font-semibold">prazo {fmtData(p.duedate)}</span>}
         </p>
 
-        <Locais locais={p.locais} size={size} theme={theme} tv={tv} />
+        <Locais locais={p.locais} size={size} tv={tv} />
       </div>
 
       {size === 'desk' && onToggle && (
@@ -413,7 +427,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
 
   return (
     <div className={`min-h-screen ${surface}`}>
-      <div className={`mx-auto ${tv ? 'p-4 space-y-3' : 'p-4 md:p-6 space-y-4 max-w-6xl'}`}>
+      <div className={`mx-auto ${tv ? 'p-3 space-y-2' : 'p-4 md:p-6 space-y-4 max-w-6xl'}`}>
 
         {/* Barra do topo — na TV uma linha só, para sobrar altura para os cards */}
         <header className={`flex flex-wrap items-center gap-3 ${tv ? 'items-baseline' : ''}`}>
@@ -593,7 +607,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
               <>
                 {destaque.length > 0 && (
                   <section
-                    className="grid gap-3 items-start grid-cols-3 2xl:grid-cols-5"
+                    className="grid gap-2.5 items-start grid-cols-3 2xl:grid-cols-5"
                     aria-label="Projetos com conclusão mais recente"
                   >
                     {destaque.map((p) => (

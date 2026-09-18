@@ -33,7 +33,7 @@ function LocaisPendentes({ porLocal }: { porLocal: Array<{ loc: string; total: n
   return (
     <div className="w-full max-w-5xl space-y-3">
       <p className="text-xl md:text-2xl uppercase tracking-wider text-cyan-400">
-        📍 Falta buscar em
+        Falta buscar em
       </p>
       <div className="flex flex-wrap justify-center gap-3">
         {mostrados.map(({ loc, total }) => (
