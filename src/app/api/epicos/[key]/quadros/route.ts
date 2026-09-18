@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { searchAllIssues, getCustomFieldMapCached, cfValue, JiraIssueLite } from '@/lib/jira';
+import { listEpicSubtasks, getCustomFieldMapCached, cfValue } from '@/lib/jira';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-/**
- * Lista as subtasks (quadros) de um Epic com Tipo, Modelo, Localização e Status.
- * Usa parentEpic; se a instância não resolver (retorna 0), cai no fallback
- * em dois passos: parent = epic → tasks, depois parent in (tasks).
- */
+/** Lista as subtasks (quadros) de um Epic com Tipo, Modelo, Localização e Status */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
@@ -26,23 +22,7 @@ export async function GET(
     }
     const fields = ['summary', 'status', tipoId, modeloId, locId].filter(Boolean);
 
-    let subs: JiraIssueLite[] = await searchAllIssues(
-      `parentEpic = "${key}" AND issuetype in subTaskIssueTypes()`,
-      fields,
-    );
-    if (subs.length === 0) {
-      const tasks = await searchAllIssues(`parent = "${key}"`, ['status']);
-      const taskKeys = tasks.map((t) => t.key);
-      subs = [];
-      for (let i = 0; i < taskKeys.length; i += 50) {
-        const chunk = taskKeys.slice(i, i + 50);
-        const batch = await searchAllIssues(
-          `parent in (${chunk.join(',')}) AND issuetype in subTaskIssueTypes()`,
-          fields,
-        );
-        subs.push(...batch);
-      }
-    }
+    const subs = await listEpicSubtasks(key, fields);
 
     return NextResponse.json(
       subs.map((s) => ({

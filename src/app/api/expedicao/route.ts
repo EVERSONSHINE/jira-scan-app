@@ -3,10 +3,12 @@ import {
   jiraFetch,
   normalize,
   findEpicAbove,
-  countEpicSubtasksByStatus,
+  listEpicSubtasks,
   getCustomFieldMapCached,
   cfValue,
+  CF,
 } from '@/lib/jira';
+import { canonicalStatus, STATUS_ORDER } from '@/lib/status';
 
 export const dynamic = 'force-dynamic';
 // Changelog + contagem do épico fazem várias chamadas ao Jira; 10s padrão é pouco
@@ -34,13 +36,36 @@ async function getExpeditedAt(key: string): Promise<string | null> {
   return latest;
 }
 
-/** Conta subtasks do épico por status, no formato que a página consome */
+/**
+ * Contagem por status + onde estão os quadros que ainda faltam expedir.
+ * Uma só varredura das subtasks do épico: pedir o campo Localização junto
+ * não custa chamada extra, e esta rota faz polling de 15s.
+ */
 async function countEpicSubtasks(epicKey: string) {
-  const { total, porStatus } = await countEpicSubtasksByStatus(epicKey);
+  const subs = await listEpicSubtasks(epicKey, ['status', CF.localizacao]);
+
+  const porStatus: Record<string, number> = {};
+  for (const s of STATUS_ORDER) porStatus[s] = 0;
+  const porLocalMap = new Map<string, number>();
+
+  for (const s of subs) {
+    const status = canonicalStatus(String((s.fields.status as { name?: string })?.name ?? ''));
+    porStatus[status] = (porStatus[status] ?? 0) + 1;
+    if (status === 'Expedido') continue;
+    const loc = cfValue(s.fields, CF.localizacao);
+    porLocalMap.set(loc, (porLocalMap.get(loc) ?? 0) + 1);
+  }
+
+  const expedido = porStatus['Expedido'] ?? 0;
   return {
-    total,
-    expedido: porStatus['Expedido'] ?? 0,
-    porStatus,
+    counts: { total: subs.length, expedido, porStatus },
+    pendentes: {
+      total: subs.length - expedido,
+      // Mais itens primeiro: é a ordem em que a equipe percorre o galpão
+      porLocal: [...porLocalMap.entries()]
+        .map(([loc, total]) => ({ loc, total }))
+        .sort((a, b) => b.total - a.total || a.loc.localeCompare(b.loc, 'pt-BR')),
+    },
   };
 }
 
@@ -65,7 +90,7 @@ export async function GET() {
 
     const epicRef = await findEpicAbove(latest.key);
 
-    const [expeditedAt, epicDetails, counts] = await Promise.all([
+    const [expeditedAt, epicDetails, subtaskStats] = await Promise.all([
       getExpeditedAt(latest.key).catch(() => String(latest.fields.updated ?? '') || null),
       epicRef ? getEpicDetails(epicRef.key) : Promise.resolve(null),
       epicRef ? countEpicSubtasks(epicRef.key) : Promise.resolve(null),
@@ -76,7 +101,8 @@ export async function GET() {
       subtask,
       expeditedAt: expeditedAt ?? (String(latest.fields.updated ?? '') || null),
       epic: epicDetails,
-      counts,
+      counts: subtaskStats?.counts ?? null,
+      pendentes: subtaskStats?.pendentes ?? null,
       fetchedAt: new Date().toISOString(),
     });
   } catch (e) {

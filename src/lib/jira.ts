@@ -6,6 +6,23 @@ const TOKEN = process.env.JIRA_API_TOKEN ?? '';
 
 export const AUTH_HEADER = `Basic ${Buffer.from(`${EMAIL}:${TOKEN}`).toString('base64')}`;
 
+/**
+ * Campos customizados confirmados na instância. Fonte de verdade da hierarquia
+ * de domínio é o campo Modelo (Projeto/Caixilho/Marco/Folha), não o issue type.
+ * Rotas que já descobrem o id por nome via getCustomFieldMapCached continuam
+ * funcionando — este mapa é para quem precisa do id direto.
+ */
+export const CF = {
+  cliente:     'customfield_10058',
+  documento:   'customfield_10059',
+  cor:         'customfield_10060',
+  tipo:        'customfield_10061',
+  largura:     'customfield_10062',
+  altura:      'customfield_10063',
+  modelo:      'customfield_10065',
+  localizacao: 'customfield_10093',
+} as const;
+
 export const JIRA_HEADERS = {
   Authorization: AUTH_HEADER,
   Accept: 'application/json',
@@ -53,30 +70,39 @@ export async function findEpicAbove(
 }
 
 /**
- * Conta as subtasks de um Epic (2 níveis abaixo) por status canônico.
+ * Lista as subtasks de um Epic (2 níveis abaixo), com os campos pedidos.
  * Usa parentEpic; se a instância não resolver (retorna 0), cai no fallback
  * em dois passos: parent = epic → tasks, depois parent in (tasks).
  */
+export async function listEpicSubtasks(
+  epicKey: string,
+  fields: string[] = ['status'],
+): Promise<JiraIssueLite[]> {
+  const subs = await searchAllIssues(
+    `parentEpic = "${epicKey}" AND issuetype in subTaskIssueTypes()`,
+    fields,
+  );
+  if (subs.length > 0) return subs;
+
+  const tasks = await searchAllIssues(`parent = "${epicKey}"`, ['status']);
+  const taskKeys = tasks.map((t) => t.key);
+  const out: JiraIssueLite[] = [];
+  for (let i = 0; i < taskKeys.length; i += 50) {
+    const chunk = taskKeys.slice(i, i + 50);
+    const batch = await searchAllIssues(
+      `parent in (${chunk.join(',')}) AND issuetype in subTaskIssueTypes()`,
+      fields,
+    );
+    out.push(...batch);
+  }
+  return out;
+}
+
+/** Conta as subtasks de um Epic por status canônico */
 export async function countEpicSubtasksByStatus(
   epicKey: string,
 ): Promise<{ total: number; porStatus: Record<string, number> }> {
-  let subs = await searchAllIssues(
-    `parentEpic = "${epicKey}" AND issuetype in subTaskIssueTypes()`,
-    ['status'],
-  );
-  if (subs.length === 0) {
-    const tasks = await searchAllIssues(`parent = "${epicKey}"`, ['status']);
-    const taskKeys = tasks.map((t) => t.key);
-    subs = [];
-    for (let i = 0; i < taskKeys.length; i += 50) {
-      const chunk = taskKeys.slice(i, i + 50);
-      const batch = await searchAllIssues(
-        `parent in (${chunk.join(',')}) AND issuetype in subTaskIssueTypes()`,
-        ['status'],
-      );
-      subs.push(...batch);
-    }
-  }
+  const subs = await listEpicSubtasks(epicKey);
   const porStatus: Record<string, number> = {};
   for (const s of subs) {
     const st = canonicalStatus(String((s.fields.status as { name?: string })?.name ?? ''));
