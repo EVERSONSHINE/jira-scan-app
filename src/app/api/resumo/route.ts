@@ -1,25 +1,16 @@
 import { NextResponse } from 'next/server';
-import { searchAllIssues, jiraFetch, normalize, cfValue } from '@/lib/jira';
+import { searchAllIssues, jiraFetch, normalize, cfValue, CF } from '@/lib/jira';
 import { canonicalStatus, STATUS_ORDER } from '@/lib/status';
 
 export const dynamic = 'force-dynamic';
 // Paginação de todo o projeto no Jira pode passar dos 10s padrão da Vercel
 export const maxDuration = 60;
 
-// Campos customizados confirmados na instância (fonte de verdade da hierarquia
-// de domínio é o campo Modelo — Projeto/Caixilho/Marco/Folha — não o issue type)
-const CF = {
-  cliente:     'customfield_10058',
-  documento:   'customfield_10059',
-  cor:         'customfield_10060',
-  tipo:        'customfield_10061',
-  largura:     'customfield_10062',
-  altura:      'customfield_10063',
-  modelo:      'customfield_10065',
-  localizacao: 'customfield_10093',
-} as const;
-
 const PARADO_DIAS = 7;
+/** Quantos projetos recém-concluídos ocupam o topo da grade (3 linhas de 5 na TV) */
+const DESTAQUE_MAX = 15;
+/** Janela da JQL que descobre quais quadros passaram por "Concluido" */
+const CONCLUIDO_JANELA = '-30d';
 
 interface QuadroNode {
   key: string; status: string; modelo: string; tipo: string;
@@ -73,11 +64,21 @@ export async function GET() {
       ...Object.values(CF),
     ];
 
-    const [issues, expedidosHoje, expedidosSemana] = await Promise.all([
+    const [issues, expedidosHoje, expedidosSemana, movidosParaConcluido] = await Promise.all([
       searchAllIssues(`project = "${project}" ORDER BY created ASC`, fields),
       approxCount(`project = "${project}" AND issuetype in subTaskIssueTypes() AND status CHANGED TO "Expedido" AFTER startOfDay()`),
       approxCount(`project = "${project}" AND issuetype in subTaskIssueTypes() AND status CHANGED TO "Expedido" AFTER -7d`),
+      // Conjunto de issues que passaram por "Concluido" na janela. Sem filtro de
+      // issuetype de propósito: quem é "quadro" aqui é o campo Modelo, não o issue
+      // type — o recorte certo vem da interseção com quadroRows, abaixo.
+      // Falhar aqui só apaga o bloco de destaque; o painel continua de pé.
+      searchAllIssues(
+        `project = "${project}" AND status CHANGED TO "Concluido" AFTER ${CONCLUIDO_JANELA}`,
+        ['updated'],
+      ).catch(() => []),
     ]);
+
+    const concluidoKeys = new Set(movidosParaConcluido.map((i) => i.key));
 
     interface Row {
       key: string; summary: string; status: string; parentKey: string;
@@ -149,7 +150,7 @@ export async function GET() {
     const now = Date.now();
     const DAY = 86_400_000;
 
-    const projetos = projetoRows
+    const porUrgencia = projetoRows
       .map((p) => {
         const caixilhos = caixilhosByProjeto.get(p.key) ?? [];
         const quadros = caixilhos.flatMap((c) => quadrosByCaixilho.get(c.key) ?? []);
@@ -175,7 +176,18 @@ export async function GET() {
         else if (p.status === 'Em Andamento') urgency = 'prod';
         else urgency = 'pend';
 
-        const cores = [...new Set(quadros.map((q) => q.cor).filter(Boolean))];
+        const cores  = [...new Set(quadros.map((q) => q.cor).filter(Boolean))];
+        const locais = [...new Set(quadros.map((q) => q.loc).filter(Boolean))]
+          .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+        // Quando um quadro DESTE projeto entrou em "Concluido" pela última vez.
+        // O status do épico não entra na conta: vale qualquer subtask que tenha
+        // se movido. Aproximado pelo `updated` dos quadros que a JQL apontou.
+        const concluidoAt = quadros.reduce<string | null>(
+          (acc, q) =>
+            concluidoKeys.has(q.key) && (!acc || q.updated > acc) ? q.updated : acc,
+          null,
+        );
 
         return {
           key: p.key,
@@ -185,12 +197,14 @@ export async function GET() {
           status: p.status,
           duedate: p.duedate,
           lastMove: lastMove || null,
+          concluidoAt,
           urgency,
           urgencyDias,
           pct,
           counts: { total: quadros.length, porStatus },
           porTipoModelo: groupTipoModelo(quadros),
           cores,
+          locais,
           quadros: quadros.map((q): QuadroNode => ({
             key: q.key, status: q.status, modelo: q.modelo, tipo: q.tipo,
             loc: q.loc, largura: q.largura, altura: q.altura,
@@ -207,6 +221,16 @@ export async function GET() {
         if (a.urgency === 'prod') return a.pct - b.pct;          // menor avanço primeiro
         return 0;
       });
+
+    // Topo da grade: quem a produção acabou de mexer. Os DESTAQUE_MAX projetos
+    // com movimentação mais recente de algum quadro para "Concluido"; o resto
+    // segue na ordem de urgência (em risco, produção, pendente, concluído…).
+    const destaque = porUrgencia
+      .filter((p) => p.concluidoAt)
+      .sort((a, b) => (b.concluidoAt ?? '').localeCompare(a.concluidoAt ?? ''))
+      .slice(0, DESTAQUE_MAX);
+    const destaqueKeys = new Set(destaque.map((p) => p.key));
+    const projetos = [...destaque, ...porUrgencia.filter((p) => !destaqueKeys.has(p.key))];
 
     // KPIs
     const totalQuadros = quadroRows.length;
@@ -236,6 +260,7 @@ export async function GET() {
         folhas:    { total: folhaRows.length,    porStatus: statusCount(folhaRows) },
       },
       projetos,
+      destaqueCount: destaque.length,
       semProjeto: orphanCaixilhos.map((c) => ({ key: c.key, summary: c.summary, status: c.status })),
       fetchedAt: new Date().toISOString(),
     });

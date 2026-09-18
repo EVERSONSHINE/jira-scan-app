@@ -15,11 +15,12 @@ interface LevelTotals { total: number; porStatus: Record<string, number> }
 type Urgency = 'atrasado' | 'parado' | 'prod' | 'pend' | 'concl' | 'exped';
 interface ProjetoNode {
   key: string; summary: string; cliente: string; documento: string; status: string;
-  duedate: string | null; lastMove: string | null;
+  duedate: string | null; lastMove: string | null; concluidoAt: string | null;
   urgency: Urgency; urgencyDias: number | null; pct: number;
   counts: { total: number; porStatus: Record<string, number> };
   porTipoModelo: TipoModeloRow[];
   cores: string[];
+  locais: string[];
   quadros: QuadroNode[];
 }
 interface ResumoData {
@@ -31,6 +32,8 @@ interface ResumoData {
   };
   niveis: { projetos: LevelTotals; caixilhos: LevelTotals; marcos: LevelTotals; folhas: LevelTotals };
   projetos: ProjetoNode[];
+  /** Quantos dos primeiros `projetos` são o bloco de recém-concluídos */
+  destaqueCount: number;
   semProjeto: Array<{ key: string; summary: string; status: string }>;
   fetchedAt: string;
 }
@@ -134,6 +137,198 @@ function StackedBar({
   );
 }
 
+/**
+ * Indicador do topo. Na TV rótulo e número dividem a mesma linha de base —
+ * a faixa cai de ~150px para ~80px, e a altura vai para os cards.
+ */
+function Kpi({
+  dot, label, value, valueCls = '', sub, tv, theme, alert = '', children,
+}: {
+  dot: React.ReactNode; label: string; value: React.ReactNode; valueCls?: string;
+  sub: React.ReactNode; tv: boolean; theme: Theme; alert?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-xl border ${tv ? 'p-3' : 'p-4'} ${theme.card} ${alert}`}>
+      <div className={tv ? 'flex items-baseline justify-between gap-2' : ''}>
+        <p className={`flex items-center gap-1.5 font-semibold uppercase tracking-wider whitespace-nowrap ${theme.faint} ${tv ? 'text-sm' : 'text-[11px]'}`}>
+          {dot} {label}
+        </p>
+        <p className={`font-bold tabular-nums ${tv ? 'text-4xl' : 'text-4xl mt-1'} ${valueCls}`}>{value}</p>
+      </div>
+      <p className={`${theme.muted} mt-1 tabular-nums ${tv ? 'text-sm' : 'text-xs'}`}>{sub}</p>
+      {children}
+    </div>
+  );
+}
+
+// ─── Card de projeto ─────────────────────────────────────────────────────────
+
+/** TV destaque (grande, 5 colunas) · TV resto (denso, 6 colunas) · desktop */
+type CardSize = 'tv' | 'tvCompact' | 'desk';
+
+const CARD_TYPO: Record<CardSize, {
+  pad: string; cliente: string; meta: string; pct: string;
+  bar: string; info: string; chip: string; maxLocais: number;
+}> = {
+  tv:        { pad: 'px-5 pt-4 pb-4',   cliente: 'text-2xl', meta: 'text-base',   pct: 'text-4xl', bar: 'h-4',   info: 'text-lg',     chip: 'text-base',   maxLocais: 6 },
+  tvCompact: { pad: 'px-3 pt-2 pb-2',   cliente: 'text-base',meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2',   info: 'text-[11px]', chip: 'text-[11px]', maxLocais: 3 },
+  desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-sm',  meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2.5', info: 'text-[11px]', chip: 'text-[11px]', maxLocais: 6 },
+};
+
+interface Theme { card: string; muted: string; faint: string; divider: string }
+
+/** Localizações não repetidas dos quadros do projeto */
+function Locais({ locais, size, theme, tv }: { locais: string[]; size: CardSize; theme: Theme; tv: boolean }) {
+  if (locais.length === 0) return null;
+  const t = CARD_TYPO[size];
+  const mostrados = locais.slice(0, t.maxLocais);
+  const resto = locais.length - mostrados.length;
+  return (
+    <p className={`flex flex-wrap items-center gap-1.5 mt-2 ${t.chip} ${theme.muted}`}>
+      <span aria-hidden>📍</span>
+      {mostrados.map((l) => (
+        <span key={l} className={`rounded border px-1.5 font-mono ${tv ? 'border-slate-700' : 'border-slate-200'}`}>
+          {l}
+        </span>
+      ))}
+      {resto > 0 && <span className={theme.faint}>+{resto}</span>}
+    </p>
+  );
+}
+
+function ProjetoCard({
+  p, size, tv, theme, expanded, onToggle,
+}: {
+  p: ProjetoNode; size: CardSize; tv: boolean; theme: Theme;
+  expanded?: boolean; onToggle?: () => void;
+}) {
+  const t = CARD_TYPO[size];
+  const pill = urgencyPill(p, tv);
+  const prontos = (p.counts.porStatus['Concluido'] ?? 0) + (p.counts.porStatus['Expedido'] ?? 0);
+  // Vermelho é alarme, nunca cor de etapa: só atrasado/parado o usam
+  const alarme = p.urgency === 'atrasado'
+    ? `prazo ${fmtData(p.duedate)} vencido`
+    : p.urgency === 'parado'
+      ? `parado há ${p.urgencyDias ?? '?'}d`
+      : null;
+
+  return (
+    <article className={`rounded-xl border overflow-hidden border-l-4 ${theme.card} ${URGENCY_STRIPE[p.urgency]}`}>
+      <div className={t.pad}>
+        {/* Nome do cliente ocupa a linha inteira: é o que se lê de longe, e
+            truncar em uma linha cortava quase todos na TV */}
+        <p className={`font-semibold leading-tight line-clamp-2 ${t.cliente}`}>
+          {p.cliente || p.summary || p.key}
+        </p>
+        <div className="flex items-baseline justify-between gap-2 mt-0.5">
+          <p className={`font-mono truncate ${theme.faint} ${t.meta}`}>
+            {p.key}{p.documento && ` · doc ${p.documento}`}
+          </p>
+          <span className={`rounded-full px-2.5 py-0.5 font-bold uppercase tracking-wide whitespace-nowrap shrink-0 ${t.meta} ${pill.cls}`}>
+            {pill.label}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2.5 mt-3">
+          <span className={`font-bold tabular-nums ${t.pct}`}>{p.pct}%</span>
+          <div className="flex-1">
+            <StackedBar porStatus={p.counts.porStatus} total={p.counts.total} tv={tv} height={t.bar} />
+          </div>
+        </div>
+
+        <p className={`flex flex-wrap gap-x-3 mt-2 tabular-nums ${theme.muted} ${t.info}`}>
+          {p.counts.total > 0
+            ? <span>{p.counts.total} quadros · {prontos} prontos</span>
+            : <span>Sem quadros</span>}
+          {/* Última movimentação em todos os cards, não só nos de alarme */}
+          {p.lastMove && <span>últ. mov. {fmtData(p.lastMove)}</span>}
+          {alarme
+            ? <span className={`font-semibold ${tv ? 'text-red-400' : 'text-red-600'}`}>{alarme}</span>
+            : p.duedate && <span className="font-semibold">prazo {fmtData(p.duedate)}</span>}
+        </p>
+
+        <Locais locais={p.locais} size={size} theme={theme} tv={tv} />
+      </div>
+
+      {size === 'desk' && onToggle && (
+        <>
+          <button
+            onClick={onToggle}
+            aria-expanded={!!expanded}
+            className={`w-full border-t py-1.5 text-xs font-semibold ${theme.divider} ${theme.faint} hover:text-slate-700`}
+          >
+            {expanded ? 'Detalhes ▴' : 'Detalhes ▾'}
+          </button>
+          {expanded && (
+            <div className="px-4 pb-4 space-y-2">
+              {p.porTipoModelo.length > 0 && (
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className={theme.faint}>
+                      <th className="text-left font-semibold py-1">Tipo · Modelo</th>
+                      <th className="text-right font-semibold py-1 pl-3">Total</th>
+                      <th className="text-right font-semibold py-1 pl-3">Concl.</th>
+                      <th className="text-right font-semibold py-1 pl-3">Exped.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {p.porTipoModelo.map((r) => (
+                      <tr key={`${r.tipo}|${r.modelo}`} className={`border-t ${theme.divider}`}>
+                        <td className="py-1">{[r.tipo, r.modelo].filter(Boolean).join(' · ') || '(sem tipo/modelo)'}</td>
+                        <td className="text-right py-1 pl-3 tabular-nums font-bold">{r.total}</td>
+                        <td className="text-right py-1 pl-3 tabular-nums">{r.concluido}</td>
+                        <td className="text-right py-1 pl-3 tabular-nums">{r.expedido}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {p.quadros.length > 0 && (
+                <div className="overflow-auto max-h-64 border rounded-lg border-slate-200">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className={theme.faint}>
+                        <th className="text-left font-semibold py-1 px-2">Quadro</th>
+                        <th className="text-left font-semibold py-1 px-2">Modelo</th>
+                        <th className="text-left font-semibold py-1 px-2">Tipo</th>
+                        <th className="text-left font-semibold py-1 px-2">Loc.</th>
+                        <th className="text-right font-semibold py-1 px-2">Medidas</th>
+                        <th className="text-left font-semibold py-1 px-2">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {p.quadros.map((q) => (
+                        <tr key={q.key} className={`border-t ${theme.divider}`}>
+                          <td className="py-1 px-2 font-mono">{q.key}</td>
+                          <td className="py-1 px-2">{q.modelo}</td>
+                          <td className="py-1 px-2">{q.tipo}</td>
+                          <td className="py-1 px-2 font-mono">{q.loc}</td>
+                          <td className="py-1 px-2 text-right tabular-nums whitespace-nowrap">
+                            {q.largura && q.altura ? `${q.largura}×${q.altura}` : ''}
+                          </td>
+                          <td className="py-1 px-2 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1"><Dot status={q.status} tv={false} />
+                              {q.status === 'Tarefas Pendentes' ? 'Pendente' : q.status === 'Em Andamento' ? 'Produção' : q.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {p.cores.length > 0 && (
+                <p className={`${theme.faint} text-[11px]`}>Cor: {p.cores.join(' · ')}</p>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </article>
+  );
+}
+
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function ResumoClient({ tv }: { tv: boolean }) {
@@ -178,6 +373,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
   const muted   = tv ? 'text-slate-400' : 'text-slate-500';
   const faint   = tv ? 'text-slate-500' : 'text-slate-400';
   const divider = tv ? 'border-slate-800' : 'border-slate-100';
+  const theme   = { card, muted, faint, divider };
 
   const projetosVisiveis = useMemo(() => {
     if (!data) return [];
@@ -189,19 +385,24 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
     );
   }, [data, filtro, busca]);
 
+  // Na TV não há filtro nem busca, então o corte por destaqueCount é fiel à API.
+  // No desktop a lista fica plana — o corte não sobreviveria ao filtro.
+  const destaque = tv ? projetosVisiveis.slice(0, data?.destaqueCount ?? 0) : [];
+  const resto    = tv ? projetosVisiveis.slice(data?.destaqueCount ?? 0) : projetosVisiveis;
+
   const k = data?.kpis;
 
   return (
     <div className={`min-h-screen ${surface}`}>
-      <div className={`mx-auto p-4 md:p-6 space-y-4 ${tv ? 'max-w-[1600px]' : 'max-w-6xl'}`}>
+      <div className={`mx-auto ${tv ? 'p-4 space-y-3' : 'p-4 md:p-6 space-y-4 max-w-6xl'}`}>
 
-        {/* Barra do topo */}
-        <header className="flex flex-wrap items-center gap-3">
-          <div className="mr-auto">
-            <h1 className={`font-bold leading-tight tracking-tight ${tv ? 'text-3xl' : 'text-xl'}`}>
+        {/* Barra do topo — na TV uma linha só, para sobrar altura para os cards */}
+        <header className={`flex flex-wrap items-center gap-3 ${tv ? 'items-baseline' : ''}`}>
+          <div className={tv ? 'mr-auto flex items-baseline gap-3' : 'mr-auto'}>
+            <h1 className={`font-bold leading-tight tracking-tight ${tv ? 'text-2xl' : 'text-xl'}`}>
               Resumo da Produção
             </h1>
-            <p className={`${muted} ${tv ? 'text-lg' : 'text-xs'}`}>
+            <p className={`${muted} ${tv ? 'text-base' : 'text-xs'}`}>
               Shine Windows{updatedAt && ` · atualizado às ${updatedAt}`}
             </p>
           </div>
@@ -241,93 +442,107 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
         {data && k && (
           <>
             {/* KPIs executivos */}
-            <section className="grid grid-cols-2 xl:grid-cols-4 gap-3" aria-label="Indicadores">
-              <div className={`rounded-xl border p-4 ${card}`}>
-                <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${faint}`}>
-                  <Dot status="Concluido" tv={tv} /> Conclusão geral
-                </p>
-                <p className={`font-bold tabular-nums mt-1 ${tv ? 'text-6xl' : 'text-4xl'} ${tv ? 'text-emerald-500' : 'text-emerald-600'}`}>
-                  {k.conclusaoPct}<span className={`font-semibold ${tv ? 'text-2xl' : 'text-base'}`}>%</span>
-                </p>
-                <p className={`${muted} mt-1 tabular-nums ${tv ? 'text-base' : 'text-xs'}`}>
-                  {nf(k.quadrosProntos)} de {nf(k.quadrosTotal)} quadros produzidos
-                </p>
+            <section className={`grid gap-3 ${tv ? 'grid-cols-4' : 'grid-cols-2 xl:grid-cols-4'}`} aria-label="Indicadores">
+              <Kpi
+                tv={tv} theme={theme}
+                dot={<Dot status="Concluido" tv={tv} />}
+                label="Conclusão geral"
+                valueCls={tv ? 'text-emerald-500' : 'text-emerald-600'}
+                value={<>{k.conclusaoPct}<span className={`font-semibold ${tv ? 'text-xl' : 'text-base'}`}>%</span></>}
+                sub={<>{nf(k.quadrosProntos)} de {nf(k.quadrosTotal)} quadros produzidos</>}
+              >
                 <div className={`h-1.5 rounded-full mt-2 overflow-hidden ${tv ? 'bg-slate-800' : 'bg-slate-200'}`}>
                   <div className="h-full rounded-full bg-emerald-600" style={{ width: `${k.conclusaoPct}%` }} />
                 </div>
-              </div>
+              </Kpi>
 
-              <div className={`rounded-xl border p-4 ${card} ${k.risco.total > 0 ? (tv ? '!border-red-500' : '!border-red-600') : ''}`}>
-                <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${faint}`}>
-                  <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${tv ? 'bg-red-400' : 'bg-red-600'}`} aria-hidden /> Projetos em risco
-                </p>
-                <p className={`font-bold tabular-nums mt-1 ${tv ? 'text-6xl' : 'text-4xl'} ${k.risco.total > 0 ? (tv ? 'text-red-400' : 'text-red-600') : ''}`}>
-                  {k.risco.total}
-                </p>
-                <p className={`${muted} mt-1 tabular-nums ${tv ? 'text-base' : 'text-xs'}`}>
-                  {k.risco.parados} parados &gt; 7 dias · {k.risco.atrasados} com prazo vencido
-                </p>
-              </div>
+              <Kpi
+                tv={tv} theme={theme}
+                dot={<span className={`inline-block w-2 h-2 rounded-full shrink-0 ${tv ? 'bg-red-400' : 'bg-red-600'}`} aria-hidden />}
+                label="Projetos em risco"
+                alert={k.risco.total > 0 ? (tv ? '!border-red-500' : '!border-red-600') : ''}
+                valueCls={k.risco.total > 0 ? (tv ? 'text-red-400' : 'text-red-600') : ''}
+                value={k.risco.total}
+                sub={<>{k.risco.parados} parados &gt; 7 dias · {k.risco.atrasados} com prazo vencido</>}
+              />
 
-              <div className={`rounded-xl border p-4 ${card}`}>
-                <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${faint}`}>
-                  <Dot status="Expedido" tv={tv} /> Expedidos
-                </p>
-                <p className={`font-bold tabular-nums mt-1 ${tv ? 'text-6xl' : 'text-4xl'} ${tv ? 'text-blue-400' : 'text-blue-600'}`}>
-                  {k.expedidosHoje ?? '—'}
-                </p>
-                <p className={`${muted} mt-1 tabular-nums ${tv ? 'text-base' : 'text-xs'}`}>
-                  hoje · {k.expedidosSemana ?? '—'} nos últimos 7 dias
-                </p>
-              </div>
+              <Kpi
+                tv={tv} theme={theme}
+                dot={<Dot status="Expedido" tv={tv} />}
+                label="Expedidos"
+                valueCls={tv ? 'text-blue-400' : 'text-blue-600'}
+                value={k.expedidosHoje ?? '—'}
+                sub={<>hoje · {k.expedidosSemana ?? '—'} nos últimos 7 dias</>}
+              />
 
-              <div className={`rounded-xl border p-4 ${card}`}>
-                <p className={`flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider ${faint}`}>
-                  <Dot status="Em Andamento" tv={tv} /> Em produção agora
-                </p>
-                <p className={`font-bold tabular-nums mt-1 ${tv ? 'text-6xl' : 'text-4xl'}`}>
-                  {k.emProducao.projetos} <span className={`font-semibold ${muted} ${tv ? 'text-2xl' : 'text-base'}`}>projetos</span>
-                </p>
-                <p className={`${muted} mt-1 tabular-nums ${tv ? 'text-base' : 'text-xs'}`}>
-                  {nf(k.emProducao.caixilhos)} caixilhos · {nf(k.emProducao.quadrosFila)} quadros na fila
-                </p>
-              </div>
+              <Kpi
+                tv={tv} theme={theme}
+                dot={<Dot status="Em Andamento" tv={tv} />}
+                label="Em produção agora"
+                value={<>{k.emProducao.projetos} <span className={`font-semibold ${muted} ${tv ? 'text-xl' : 'text-base'}`}>projetos</span></>}
+                sub={<>{nf(k.emProducao.caixilhos)} caixilhos · {nf(k.emProducao.quadrosFila)} quadros na fila</>}
+              />
             </section>
 
             {/* Visão geral — hierarquia pelo campo Modelo do Jira */}
-            <section className={`rounded-xl border p-4 space-y-2.5 ${card}`} aria-label="Visão geral por nível">
-              <h2 className={`font-semibold ${tv ? 'text-xl' : 'text-sm'}`}>Visão geral</h2>
-              {([
+            {(() => {
+              const niveis = [
                 ['Projetos',  'Epic',    data.niveis.projetos],
                 ['Caixilhos', 'Task',    data.niveis.caixilhos],
                 ['Marcos',    'Subtask', data.niveis.marcos],
                 ['Folhas',    'Subtask', data.niveis.folhas],
-              ] as Array<[string, string, LevelTotals]>).map(([label, jira, t]) => (
-                <div key={label} className="grid grid-cols-[110px_1fr] md:grid-cols-[130px_1fr_max-content] gap-x-3 gap-y-1 items-center">
-                  <span className={`font-semibold ${muted} ${tv ? 'text-lg' : 'text-xs'}`}>
-                    <b className={`tabular-nums ${tv ? 'text-slate-100' : 'text-slate-800'}`}>{nf(t.total)}</b> {label}
-                    {!tv && <span className={`ml-1 text-[9px] border rounded px-1 align-middle ${faint} ${divider}`}>{jira}</span>}
-                  </span>
-                  <StackedBar porStatus={t.porStatus} total={t.total} tv={tv} height={tv ? 'h-5' : 'h-3.5'} />
-                  <span className={`hidden md:block whitespace-nowrap tabular-nums ${faint} ${tv ? 'text-base' : 'text-[11px]'}`}>
-                    {orderedStatuses(t.porStatus).map((s) => `${t.porStatus[s]} ${s === 'Tarefas Pendentes' ? 'pend' : s === 'Em Andamento' ? 'prod' : s === 'Concluido' ? 'concl' : s === 'Expedido' ? 'exped' : s.toLowerCase()}`).join(' · ')}
-                  </span>
-                </div>
-              ))}
-              <div className={`flex flex-wrap gap-x-4 gap-y-1 pt-1 ${tv ? 'text-base text-slate-300' : 'text-[11px] text-slate-600'}`}>
-                {STATUS_ORDER.map((s) => (
-                  <span key={s} className="flex items-center gap-1.5">
-                    <Dot status={s} tv={tv} />
-                    {s === 'Tarefas Pendentes' ? 'Pendente' : s === 'Em Andamento' ? 'Em produção' : s === 'Concluido' ? 'Concluído' : s}
-                  </span>
-                ))}
-              </div>
-              {!tv && (
-                <p className={`${faint} text-[11px]`}>
-                  Classificação pelo campo <b className={muted}>Modelo</b> do Jira: Projeto · Caixilho · Marco · Folha.
-                </p>
-              )}
-            </section>
+              ] as Array<[string, string, LevelTotals]>;
+              const resumoStatuses = (t: LevelTotals) =>
+                orderedStatuses(t.porStatus).map((s) => `${t.porStatus[s]} ${s === 'Tarefas Pendentes' ? 'pend' : s === 'Em Andamento' ? 'prod' : s === 'Concluido' ? 'concl' : s === 'Expedido' ? 'exped' : s.toLowerCase()}`).join(' · ');
+
+              // Na TV: uma faixa de 4 colunas, sem título nem legenda — as mesmas
+              // cores se repetem nas barras de cada card, com os números escritos
+              return (
+                <section className={`rounded-xl border ${tv ? 'p-3' : 'p-4 space-y-2.5'} ${card}`} aria-label="Visão geral por nível">
+                  {tv ? (
+                    <div className="grid grid-cols-4 gap-x-5">
+                      {niveis.map(([label, , t]) => (
+                        <div key={label} className="space-y-1">
+                          <p className="flex items-baseline gap-1.5 text-sm whitespace-nowrap">
+                            <b className="tabular-nums text-slate-100">{nf(t.total)}</b>
+                            <span className={muted}>{label}</span>
+                            <span className={`tabular-nums truncate ${faint}`}>{resumoStatuses(t)}</span>
+                          </p>
+                          <StackedBar porStatus={t.porStatus} total={t.total} tv height="h-3" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <>
+                      <h2 className="font-semibold text-sm">Visão geral</h2>
+                      {niveis.map(([label, jira, t]) => (
+                        <div key={label} className="grid grid-cols-[110px_1fr] md:grid-cols-[130px_1fr_max-content] gap-x-3 gap-y-1 items-center">
+                          <span className={`font-semibold text-xs ${muted}`}>
+                            <b className="tabular-nums text-slate-800">{nf(t.total)}</b> {label}
+                            <span className={`ml-1 text-[9px] border rounded px-1 align-middle ${faint} ${divider}`}>{jira}</span>
+                          </span>
+                          <StackedBar porStatus={t.porStatus} total={t.total} tv={false} height="h-3.5" />
+                          <span className={`hidden md:block whitespace-nowrap tabular-nums text-[11px] ${faint}`}>
+                            {resumoStatuses(t)}
+                          </span>
+                        </div>
+                      ))}
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-[11px] text-slate-600">
+                        {STATUS_ORDER.map((s) => (
+                          <span key={s} className="flex items-center gap-1.5">
+                            <Dot status={s} tv={false} />
+                            {s === 'Tarefas Pendentes' ? 'Pendente' : s === 'Em Andamento' ? 'Em produção' : s === 'Concluido' ? 'Concluído' : s}
+                          </span>
+                        ))}
+                      </div>
+                      <p className={`${faint} text-[11px]`}>
+                        Classificação pelo campo <b className={muted}>Modelo</b> do Jira: Projeto · Caixilho · Marco · Folha.
+                      </p>
+                    </>
+                  )}
+                </section>
+              );
+            })()}
 
             {/* Filtros */}
             {!tv && (
@@ -354,133 +569,48 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
               </div>
             )}
 
-            {/* Grade de projetos por urgência */}
+            {/* Grade de projetos: recém-concluídos primeiro, resto por urgência */}
+            {tv ? (
+              <>
+                {destaque.length > 0 && (
+                  <section
+                    className="grid gap-3 items-start grid-cols-3 2xl:grid-cols-5"
+                    aria-label="Projetos com conclusão mais recente"
+                  >
+                    {destaque.map((p) => (
+                      <ProjetoCard key={p.key} p={p} size="tv" tv theme={theme} />
+                    ))}
+                  </section>
+                )}
+                {resto.length > 0 && (
+                  <section
+                    className="grid gap-2 items-start grid-cols-4 2xl:grid-cols-6"
+                    aria-label="Demais projetos por urgência"
+                  >
+                    {resto.map((p) => (
+                      <ProjetoCard key={p.key} p={p} size="tvCompact" tv theme={theme} />
+                    ))}
+                  </section>
+                )}
+              </>
+            ) : (
             <section
-              className={`grid gap-3 items-start ${tv ? 'grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4' : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'}`}
-              aria-label="Projetos por urgência"
+              className="grid gap-3 items-start grid-cols-1 md:grid-cols-2 xl:grid-cols-3"
+              aria-label="Projetos"
             >
-              {projetosVisiveis.map((p) => {
-                const pill = urgencyPill(p, tv);
-                const isOpen = !!expanded[p.key];
-                const flagAlarme = p.urgency === 'atrasado'
-                  ? `prazo ${fmtData(p.duedate)} vencido`
-                  : p.urgency === 'parado'
-                    ? `últ. movimentação ${fmtData(p.lastMove)}`
-                    : null;
-                return (
-                  <article key={p.key} className={`rounded-xl border overflow-hidden border-l-4 ${card} ${URGENCY_STRIPE[p.urgency]}`}>
-                    <div className="px-4 pt-3.5 pb-3">
-                      <div className="flex items-start gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className={`font-semibold truncate ${tv ? 'text-xl' : 'text-sm'}`}>
-                            {p.cliente || p.summary || p.key}
-                          </p>
-                          <p className={`font-mono ${faint} ${tv ? 'text-sm' : 'text-[11px]'}`}>
-                            {p.key}{p.documento && ` · doc ${p.documento}`}
-                          </p>
-                        </div>
-                        <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide whitespace-nowrap ${tv ? 'text-xs' : ''} ${pill.cls}`}>
-                          {pill.label}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2.5 mt-3">
-                        <span className={`font-bold tabular-nums min-w-[3.25rem] ${tv ? 'text-3xl' : 'text-xl'}`}>{p.pct}%</span>
-                        <div className="flex-1">
-                          <StackedBar porStatus={p.counts.porStatus} total={p.counts.total} tv={tv} height={tv ? 'h-3.5' : 'h-2.5'} />
-                        </div>
-                      </div>
-                      <p className={`flex flex-wrap gap-x-3 mt-2 tabular-nums ${muted} ${tv ? 'text-base' : 'text-[11px]'}`}>
-                        {p.counts.total > 0 ? (
-                          <span>
-                            {p.counts.total} quadros · {(p.counts.porStatus['Concluido'] ?? 0) + (p.counts.porStatus['Expedido'] ?? 0)} prontos
-                            {(p.counts.porStatus['Expedido'] ?? 0) > 0 && ` · ${p.counts.porStatus['Expedido']} expedidos`}
-                          </span>
-                        ) : (
-                          <span>Sem quadros</span>
-                        )}
-                        {flagAlarme && <span className={`font-semibold ${tv ? 'text-red-400' : 'text-red-600'}`}>{flagAlarme}</span>}
-                        {!flagAlarme && p.duedate && <span className="font-semibold">prazo {fmtData(p.duedate)}</span>}
-                      </p>
-                    </div>
-
-                    {!tv && (
-                      <>
-                        <button
-                          onClick={() => setExpanded((e) => ({ ...e, [p.key]: !e[p.key] }))}
-                          aria-expanded={isOpen}
-                          className={`w-full border-t py-1.5 text-xs font-semibold ${divider} ${faint} hover:text-slate-700`}
-                        >
-                          {isOpen ? 'Detalhes ▴' : 'Detalhes ▾'}
-                        </button>
-                        {isOpen && (
-                          <div className="px-4 pb-4 space-y-2">
-                            {p.porTipoModelo.length > 0 && (
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className={faint}>
-                                    <th className="text-left font-semibold py-1">Tipo · Modelo</th>
-                                    <th className="text-right font-semibold py-1 pl-3">Total</th>
-                                    <th className="text-right font-semibold py-1 pl-3">Concl.</th>
-                                    <th className="text-right font-semibold py-1 pl-3">Exped.</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {p.porTipoModelo.map((r) => (
-                                    <tr key={`${r.tipo}|${r.modelo}`} className={`border-t ${divider}`}>
-                                      <td className="py-1">{[r.tipo, r.modelo].filter(Boolean).join(' · ') || '(sem tipo/modelo)'}</td>
-                                      <td className="text-right py-1 pl-3 tabular-nums font-bold">{r.total}</td>
-                                      <td className="text-right py-1 pl-3 tabular-nums">{r.concluido}</td>
-                                      <td className="text-right py-1 pl-3 tabular-nums">{r.expedido}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                            {p.quadros.length > 0 && (
-                              <div className="overflow-auto max-h-64 border rounded-lg border-slate-200">
-                                <table className="w-full text-xs">
-                                  <thead className="sticky top-0 bg-white">
-                                    <tr className={faint}>
-                                      <th className="text-left font-semibold py-1 px-2">Quadro</th>
-                                      <th className="text-left font-semibold py-1 px-2">Modelo</th>
-                                      <th className="text-left font-semibold py-1 px-2">Tipo</th>
-                                      <th className="text-left font-semibold py-1 px-2">Loc.</th>
-                                      <th className="text-right font-semibold py-1 px-2">Medidas</th>
-                                      <th className="text-left font-semibold py-1 px-2">Status</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {p.quadros.map((q) => (
-                                      <tr key={q.key} className={`border-t ${divider}`}>
-                                        <td className="py-1 px-2 font-mono">{q.key}</td>
-                                        <td className="py-1 px-2">{q.modelo}</td>
-                                        <td className="py-1 px-2">{q.tipo}</td>
-                                        <td className="py-1 px-2 font-mono">{q.loc}</td>
-                                        <td className="py-1 px-2 text-right tabular-nums whitespace-nowrap">
-                                          {q.largura && q.altura ? `${q.largura}×${q.altura}` : ''}
-                                        </td>
-                                        <td className="py-1 px-2 whitespace-nowrap">
-                                          <span className="inline-flex items-center gap-1"><Dot status={q.status} tv={false} />
-                                            {q.status === 'Tarefas Pendentes' ? 'Pendente' : q.status === 'Em Andamento' ? 'Produção' : q.status}
-                                          </span>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )}
-                            {p.cores.length > 0 && (
-                              <p className={`${faint} text-[11px]`}>Cor: {p.cores.join(' · ')}</p>
-                            )}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </article>
-                );
-              })}
+              {projetosVisiveis.map((p) => (
+                <ProjetoCard
+                  key={p.key}
+                  p={p}
+                  size="desk"
+                  tv={false}
+                  theme={theme}
+                  expanded={!!expanded[p.key]}
+                  onToggle={() => setExpanded((e) => ({ ...e, [p.key]: !e[p.key] }))}
+                />
+              ))}
             </section>
+            )}
             {projetosVisiveis.length === 0 && (
               <p className={`text-center py-10 ${faint}`}>Nenhum projeto encontrado.</p>
             )}
