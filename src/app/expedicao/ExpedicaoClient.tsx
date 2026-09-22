@@ -69,7 +69,7 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
   const pendentes = data?.pendentes ?? null;
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col p-8 md:p-12">
+    <div className="min-h-screen bg-slate-200 text-slate-900 flex flex-col p-8 md:p-12">
 
       {/* Header */}
       <header className="flex items-start justify-between">
