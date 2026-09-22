@@ -394,7 +394,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
   // Tema claro, um só para TV e desktop: o que cresce na TV é a tipografia
   // (CARD_TYPO), não o contraste. Cinzas um passo mais escuros que o padrão do
   // desktop antigo — o painel é lido de longe, e slate-400 some a 3 metros.
-  const surface = 'bg-slate-100 text-slate-900';
+  const surface = 'bg-slate-200 text-slate-900';
   const card    = 'bg-white border-slate-200 shadow-sm';
   const muted   = 'text-slate-600';
   const faint   = 'text-slate-500';
