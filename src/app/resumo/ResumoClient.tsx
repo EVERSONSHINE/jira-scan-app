@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { STATUS_ORDER, OUTROS, STATUS_CHART_LIGHT, STATUS_CHART_DARK } from '@/lib/status';
+import { STATUS_ORDER, OUTROS, STATUS_CHART } from '@/lib/status';
 import { marcarSucesso } from '@/lib/autoreload';
 
 const POLL_MS = 15_000;
@@ -52,22 +52,14 @@ const URGENCY_STRIPE: Record<Urgency, string> = {
   exped:    'border-l-blue-600',
 };
 
-function urgencyPill(p: ProjetoNode, tv: boolean): { label: string; cls: string } {
-  const light: Record<Urgency, string> = {
+function urgencyPill(p: ProjetoNode): { label: string; cls: string } {
+  const cores: Record<Urgency, string> = {
     atrasado: 'bg-red-100 text-red-700',
     parado:   'bg-red-100 text-red-700',
     prod:     'bg-amber-100 text-amber-700',
     pend:     'bg-slate-200 text-slate-600',
     concl:    'bg-emerald-100 text-emerald-700',
     exped:    'bg-blue-100 text-blue-700',
-  };
-  const dark: Record<Urgency, string> = {
-    atrasado: 'bg-red-950 text-red-400',
-    parado:   'bg-red-950 text-red-400',
-    prod:     'bg-amber-950 text-amber-400',
-    pend:     'bg-slate-800 text-slate-300',
-    concl:    'bg-emerald-950 text-emerald-400',
-    exped:    'bg-blue-950 text-blue-400',
   };
   const labels: Record<Urgency, string> = {
     atrasado: `Atrasado ${p.urgencyDias ?? '?'}d`,
@@ -77,7 +69,7 @@ function urgencyPill(p: ProjetoNode, tv: boolean): { label: string; cls: string 
     concl:    'Concluído',
     exped:    'Expedido',
   };
-  return { label: labels[p.urgency], cls: (tv ? dark : light)[p.urgency] };
+  return { label: labels[p.urgency], cls: cores[p.urgency] };
 }
 
 const FILTERS: Array<{ id: string; label: string; match: (p: ProjetoNode) => boolean }> = [
@@ -108,20 +100,20 @@ function orderedStatuses(porStatus: Record<string, number>): string[] {
   return [...STATUS_ORDER, ...extras].filter((s) => (porStatus[s] ?? 0) > 0);
 }
 
-function Dot({ status, tv }: { status: string; tv: boolean }) {
-  const map = tv ? STATUS_CHART_DARK : STATUS_CHART_LIGHT;
+function Dot({ status }: { status: string }) {
+  const map = STATUS_CHART;
   return (
     <span className={`inline-block w-2 h-2 rounded-full shrink-0 ${map[status] ?? map[OUTROS]}`} aria-hidden />
   );
 }
 
 function StackedBar({
-  porStatus, total, tv, height,
+  porStatus, total, height,
 }: {
-  porStatus: Record<string, number>; total: number; tv: boolean; height: string;
+  porStatus: Record<string, number>; total: number; height: string;
 }) {
   if (total === 0) return null;
-  const map = tv ? STATUS_CHART_DARK : STATUS_CHART_LIGHT;
+  const map = STATUS_CHART;
   const statuses = orderedStatuses(porStatus);
   return (
     <div className={`flex ${height} rounded-full overflow-hidden gap-[2px]`} role="img"
@@ -186,12 +178,9 @@ interface Theme { card: string; muted: string; faint: string; divider: string }
  * lugar, então precisa saltar. Fora do vocabulário de status de propósito —
  * cinza/âmbar/verde/azul significam etapa e vermelho é alarme; ciano é o único
  * hue que passou a separação CVD contra todos os cinco (skill dataviz).
- * Contraste: chip vs card 12.3:1 na TV, 5.4:1 no desktop.
+ * Contraste sobre o card branco: 5.4:1 do chip e do texto branco dentro dele.
  */
-const LOC_CHIP = {
-  tv:   'bg-cyan-300 text-cyan-950',
-  desk: 'bg-cyan-700 text-white',
-};
+const LOC_CHIP = 'bg-cyan-700 text-white';
 
 /**
  * Localizações não repetidas dos quadros do projeto.
@@ -211,7 +200,7 @@ const LOC_ALTURA: Record<CardSize, string> = {
   desk:      '',
 };
 
-function Locais({ locais, size, tv }: { locais: string[]; size: CardSize; tv: boolean }) {
+function Locais({ locais, size }: { locais: string[]; size: CardSize }) {
   if (locais.length === 0) return null;
   const t = CARD_TYPO[size];
   return (
@@ -222,7 +211,7 @@ function Locais({ locais, size, tv }: { locais: string[]; size: CardSize; tv: bo
       {locais.map((l) => (
         <span
           key={l}
-          className={`rounded px-2 py-0.5 font-mono font-bold tracking-wide whitespace-nowrap ${tv ? LOC_CHIP.tv : LOC_CHIP.desk}`}
+          className={`rounded px-2 py-0.5 font-mono font-bold tracking-wide whitespace-nowrap ${LOC_CHIP}`}
         >
           {l}
         </span>
@@ -232,13 +221,13 @@ function Locais({ locais, size, tv }: { locais: string[]; size: CardSize; tv: bo
 }
 
 function ProjetoCard({
-  p, size, tv, theme, expanded, onToggle,
+  p, size, theme, expanded, onToggle,
 }: {
-  p: ProjetoNode; size: CardSize; tv: boolean; theme: Theme;
+  p: ProjetoNode; size: CardSize; theme: Theme;
   expanded?: boolean; onToggle?: () => void;
 }) {
   const t = CARD_TYPO[size];
-  const pill = urgencyPill(p, tv);
+  const pill = urgencyPill(p);
   const prontos = (p.counts.porStatus['Concluido'] ?? 0) + (p.counts.porStatus['Expedido'] ?? 0);
   // Vermelho é alarme, nunca cor de etapa: só atrasado/parado o usam
   const alarme = p.urgency === 'atrasado'
@@ -267,7 +256,7 @@ function ProjetoCard({
         <div className={`flex items-center gap-2.5 ${size === 'tv' ? 'mt-2' : 'mt-3'}`}>
           <span className={`font-bold tabular-nums ${t.pct}`}>{p.pct}%</span>
           <div className="flex-1">
-            <StackedBar porStatus={p.counts.porStatus} total={p.counts.total} tv={tv} height={t.bar} />
+            <StackedBar porStatus={p.counts.porStatus} total={p.counts.total} height={t.bar} />
           </div>
         </div>
 
@@ -278,11 +267,11 @@ function ProjetoCard({
           {/* Última movimentação em todos os cards, não só nos de alarme */}
           {p.lastMove && <span>últ. mov. {fmtData(p.lastMove)}</span>}
           {alarme
-            ? <span className={`font-semibold ${tv ? 'text-red-400' : 'text-red-600'}`}>{alarme}</span>
+            ? <span className="font-semibold text-red-600">{alarme}</span>
             : p.duedate && <span className="font-semibold">prazo {fmtData(p.duedate)}</span>}
         </p>
 
-        <Locais locais={p.locais} size={size} tv={tv} />
+        <Locais locais={p.locais} size={size} />
       </div>
 
       {size === 'desk' && onToggle && (
@@ -342,7 +331,7 @@ function ProjetoCard({
                             {q.largura && q.altura ? `${q.largura}×${q.altura}` : ''}
                           </td>
                           <td className="py-1 px-2 whitespace-nowrap">
-                            <span className="inline-flex items-center gap-1"><Dot status={q.status} tv={false} />
+                            <span className="inline-flex items-center gap-1"><Dot status={q.status} />
                               {q.status === 'Tarefas Pendentes' ? 'Pendente' : q.status === 'Em Andamento' ? 'Produção' : q.status}
                             </span>
                           </td>
@@ -402,12 +391,14 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
     return () => clearInterval(id);
   }, [load, tv]);
 
-  // Tokens dos dois temas
-  const surface = tv ? 'bg-slate-950 text-slate-100' : 'bg-slate-100 text-slate-800';
-  const card    = tv ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200 shadow-sm';
-  const muted   = tv ? 'text-slate-400' : 'text-slate-500';
-  const faint   = tv ? 'text-slate-500' : 'text-slate-400';
-  const divider = tv ? 'border-slate-800' : 'border-slate-100';
+  // Tema claro, um só para TV e desktop: o que cresce na TV é a tipografia
+  // (CARD_TYPO), não o contraste. Cinzas um passo mais escuros que o padrão do
+  // desktop antigo — o painel é lido de longe, e slate-400 some a 3 metros.
+  const surface = 'bg-slate-100 text-slate-900';
+  const card    = 'bg-white border-slate-200 shadow-sm';
+  const muted   = 'text-slate-600';
+  const faint   = 'text-slate-500';
+  const divider = 'border-slate-200';
   const theme   = { card, muted, faint, divider };
 
   const projetosVisiveis = useMemo(() => {
@@ -464,7 +455,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
 
         {/* Erro */}
         {error && (
-          <div className={`rounded-xl border px-4 py-3 ${tv ? 'text-lg bg-amber-950 border-amber-700 text-amber-400' : 'text-sm bg-amber-50 border-amber-300 text-amber-700'}`}>
+          <div className={`rounded-xl border px-4 py-3 bg-amber-50 border-amber-300 text-amber-700 ${tv ? 'text-lg' : 'text-sm'}`}>
             ⚠ Falha ao atualizar — {data ? 'mostrando últimos dados.' : 'tentando novamente.'}
             <span className="opacity-70"> ({error.slice(0, 120)})</span>
           </div>
@@ -480,39 +471,39 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
             <section className={`grid gap-3 ${tv ? 'grid-cols-4' : 'grid-cols-2 xl:grid-cols-4'}`} aria-label="Indicadores">
               <Kpi
                 tv={tv} theme={theme}
-                dot={<Dot status="Concluido" tv={tv} />}
+                dot={<Dot status="Concluido" />}
                 label="Conclusão geral"
-                valueCls={tv ? 'text-emerald-500' : 'text-emerald-600'}
+                valueCls="text-emerald-600"
                 value={<>{k.conclusaoPct}<span className={`font-semibold ${tv ? 'text-xl' : 'text-base'}`}>%</span></>}
                 sub={<>{nf(k.quadrosProntos)} de {nf(k.quadrosTotal)} quadros produzidos</>}
               >
-                <div className={`h-1.5 rounded-full mt-2 overflow-hidden ${tv ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                <div className="h-1.5 rounded-full mt-2 overflow-hidden bg-slate-200">
                   <div className="h-full rounded-full bg-emerald-600" style={{ width: `${k.conclusaoPct}%` }} />
                 </div>
               </Kpi>
 
               <Kpi
                 tv={tv} theme={theme}
-                dot={<span className={`inline-block w-2 h-2 rounded-full shrink-0 ${tv ? 'bg-red-400' : 'bg-red-600'}`} aria-hidden />}
+                dot={<span className="inline-block w-2 h-2 rounded-full shrink-0 bg-red-600" aria-hidden />}
                 label="Projetos em risco"
-                alert={k.risco.total > 0 ? (tv ? '!border-red-500' : '!border-red-600') : ''}
-                valueCls={k.risco.total > 0 ? (tv ? 'text-red-400' : 'text-red-600') : ''}
+                alert={k.risco.total > 0 ? '!border-red-600' : ''}
+                valueCls={k.risco.total > 0 ? 'text-red-600' : ''}
                 value={k.risco.total}
                 sub={<>{k.risco.parados} parados &gt; 7 dias · {k.risco.atrasados} com prazo vencido</>}
               />
 
               <Kpi
                 tv={tv} theme={theme}
-                dot={<Dot status="Expedido" tv={tv} />}
+                dot={<Dot status="Expedido" />}
                 label="Expedidos"
-                valueCls={tv ? 'text-blue-400' : 'text-blue-600'}
+                valueCls="text-blue-600"
                 value={k.expedidosHoje ?? '—'}
                 sub={<>hoje · {k.expedidosSemana ?? '—'} nos últimos 7 dias</>}
               />
 
               <Kpi
                 tv={tv} theme={theme}
-                dot={<Dot status="Em Andamento" tv={tv} />}
+                dot={<Dot status="Em Andamento" />}
                 label="Em produção agora"
                 value={<>{k.emProducao.projetos} <span className={`font-semibold ${muted} ${tv ? 'text-xl' : 'text-base'}`}>projetos</span></>}
                 sub={<>{nf(k.emProducao.caixilhos)} caixilhos · {nf(k.emProducao.quadrosFila)} quadros na fila</>}
@@ -539,11 +530,11 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                       {niveis.map(([label, , t]) => (
                         <div key={label} className="space-y-1">
                           <p className="flex items-baseline gap-1.5 text-sm whitespace-nowrap">
-                            <b className="tabular-nums text-slate-100">{nf(t.total)}</b>
+                            <b className="tabular-nums text-slate-900">{nf(t.total)}</b>
                             <span className={muted}>{label}</span>
                             <span className={`tabular-nums truncate ${faint}`}>{resumoStatuses(t)}</span>
                           </p>
-                          <StackedBar porStatus={t.porStatus} total={t.total} tv height="h-3" />
+                          <StackedBar porStatus={t.porStatus} total={t.total} height="h-3" />
                         </div>
                       ))}
                     </div>
@@ -556,7 +547,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                             <b className="tabular-nums text-slate-800">{nf(t.total)}</b> {label}
                             <span className={`ml-1 text-[9px] border rounded px-1 align-middle ${faint} ${divider}`}>{jira}</span>
                           </span>
-                          <StackedBar porStatus={t.porStatus} total={t.total} tv={false} height="h-3.5" />
+                          <StackedBar porStatus={t.porStatus} total={t.total} height="h-3.5" />
                           <span className={`hidden md:block whitespace-nowrap tabular-nums text-[11px] ${faint}`}>
                             {resumoStatuses(t)}
                           </span>
@@ -565,7 +556,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                       <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-[11px] text-slate-600">
                         {STATUS_ORDER.map((s) => (
                           <span key={s} className="flex items-center gap-1.5">
-                            <Dot status={s} tv={false} />
+                            <Dot status={s} />
                             {s === 'Tarefas Pendentes' ? 'Pendente' : s === 'Em Andamento' ? 'Em produção' : s === 'Concluido' ? 'Concluído' : s}
                           </span>
                         ))}
@@ -613,7 +604,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                     aria-label="Projetos com conclusão mais recente"
                   >
                     {destaque.map((p) => (
-                      <ProjetoCard key={p.key} p={p} size="tv" tv theme={theme} />
+                      <ProjetoCard key={p.key} p={p} size="tv" theme={theme} />
                     ))}
                   </section>
                 )}
@@ -623,7 +614,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                     aria-label="Demais projetos por urgência"
                   >
                     {resto.map((p) => (
-                      <ProjetoCard key={p.key} p={p} size="tvCompact" tv theme={theme} />
+                      <ProjetoCard key={p.key} p={p} size="tvCompact" theme={theme} />
                     ))}
                   </section>
                 )}
@@ -638,7 +629,6 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                   key={p.key}
                   p={p}
                   size="desk"
-                  tv={false}
                   theme={theme}
                   expanded={!!expanded[p.key]}
                   onToggle={() => setExpanded((e) => ({ ...e, [p.key]: !e[p.key] }))}
@@ -658,7 +648,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                   {data.semProjeto.map((c) => (
                     <span key={c.key} title={`${c.summary} (${c.status})`}
                       className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-full px-2 py-0.5 font-mono text-xs text-slate-600">
-                      <Dot status={c.status} tv={false} /> {c.key}
+                      <Dot status={c.status} /> {c.key}
                     </span>
                   ))}
                 </div>

@@ -21,7 +21,7 @@ function fmtDataHora(iso: string | null | undefined) {
 
 /**
  * Onde estão os quadros que ainda faltam expedir — o dado que manda alguém
- * andar até um lugar, então é o elemento mais luminoso da tela depois do
+ * andar até um lugar, então é o elemento mais saturado da tela depois do
  * contador. Ciano preenchido: fora do vocabulário de status (cinza/âmbar/
  * verde/azul = etapa, vermelho = alarme) e o único hue que passou a separação
  * CVD contra todos os cinco. Mais itens primeiro, ordem que vem da API.
@@ -32,7 +32,7 @@ function LocaisPendentes({ porLocal }: { porLocal: Array<{ loc: string; total: n
   const resto = porLocal.length - mostrados.length;
   return (
     <div className="w-full max-w-5xl space-y-3">
-      <p className="text-xl md:text-2xl uppercase tracking-wider text-cyan-400">
+      <p className="text-xl md:text-2xl uppercase tracking-wider text-cyan-700">
         Falta buscar em
       </p>
       <div className="flex flex-wrap justify-center gap-3">
@@ -40,21 +40,21 @@ function LocaisPendentes({ porLocal }: { porLocal: Array<{ loc: string; total: n
           <span
             key={loc || '(sem local)'}
             className={`flex items-baseline gap-3 rounded-xl px-4 py-2 ${
-              loc ? 'bg-cyan-300' : 'border-2 border-cyan-700 bg-transparent'
+              loc ? 'bg-cyan-700' : 'border-2 border-cyan-700 bg-transparent'
             }`}
           >
-            <span className={`text-2xl md:text-4xl font-bold tracking-wide ${loc ? 'text-cyan-950' : 'text-cyan-600 italic'}`}>
+            <span className={`text-2xl md:text-4xl font-bold tracking-wide ${loc ? 'text-white' : 'text-cyan-700 italic'}`}>
               {loc || 'sem local'}
             </span>
             <span className={`rounded-lg px-2 text-2xl md:text-4xl font-bold tabular-nums ${
-              loc ? 'bg-cyan-950 text-cyan-300' : 'text-cyan-600'
+              loc ? 'bg-cyan-950 text-cyan-100' : 'text-cyan-700'
             }`}>
               {total}
             </span>
           </span>
         ))}
         {resto > 0 && (
-          <span className="flex items-center px-2 text-2xl md:text-3xl font-semibold text-cyan-600">
+          <span className="flex items-center px-2 text-2xl md:text-3xl font-semibold text-cyan-700">
             +{resto} {resto === 1 ? 'local' : 'locais'}
           </span>
         )}
@@ -69,14 +69,14 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
   const pendentes = data?.pendentes ?? null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col p-8 md:p-12">
+    <div className="min-h-screen bg-slate-100 text-slate-900 flex flex-col p-8 md:p-12">
 
       {/* Header */}
       <header className="flex items-start justify-between">
-        <h1 className="text-xl md:text-2xl font-semibold text-slate-400">
+        <h1 className="text-xl md:text-2xl font-semibold text-slate-600">
           Expedição — Shine Windows
         </h1>
-        <p className={`text-base md:text-lg ${errorAt ? 'text-amber-500' : 'text-slate-500'}`}>
+        <p className={`text-base md:text-lg ${errorAt ? 'text-amber-700' : 'text-slate-500'}`}>
           {errorAt ? `⚠ Sem conexão com o Jira (${errorAt})` : updatedAt ? `Atualizado ${updatedAt}` : ''}
         </p>
       </header>
@@ -85,15 +85,15 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
       <main className="flex-1 flex flex-col items-center justify-center gap-8 text-center">
 
         {!data && !errorAt && (
-          <p className="text-3xl text-slate-600 animate-pulse">Carregando…</p>
+          <p className="text-3xl text-slate-500 animate-pulse">Carregando…</p>
         )}
 
         {data && v.showIdle && (
           <div className="space-y-6">
-            <span className="inline-block w-5 h-5 rounded-full bg-slate-700 animate-pulse" aria-hidden />
-            <p className="text-4xl md:text-6xl font-semibold text-slate-600">Aguardando expedição…</p>
+            <span className="inline-block w-5 h-5 rounded-full bg-slate-400 animate-pulse" aria-hidden />
+            <p className="text-4xl md:text-6xl font-semibold text-slate-500">Aguardando expedição…</p>
             {v.stale && data.epic && (
-              <p className="text-xl md:text-2xl text-slate-700">
+              <p className="text-xl md:text-2xl text-slate-500">
                 Última expedição: <span className="font-mono">{data.epic.key}</span> — {data.epic.summary}
                 {data.expeditedAt && ` · ${fmtDataHora(data.expeditedAt)}`}
               </p>
@@ -107,16 +107,16 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
             {data.epic ? (
               <div className="space-y-3 max-w-5xl">
                 {v.completo && (
-                  <p className="text-3xl md:text-5xl font-bold text-emerald-400 tracking-wide">
+                  <p className="text-3xl md:text-5xl font-bold text-emerald-700 tracking-wide">
                     ✓ EXPEDIÇÃO CONCLUÍDA
                   </p>
                 )}
-                <p className={`font-mono font-bold text-5xl md:text-7xl ${v.completo ? 'text-emerald-300' : 'text-white'}`}>
+                <p className={`font-mono font-bold text-5xl md:text-7xl ${v.completo ? 'text-emerald-700' : 'text-slate-900'}`}>
                   {data.epic.key}
                 </p>
-                <p className="text-3xl md:text-5xl font-semibold text-slate-200">{data.epic.summary}</p>
+                <p className="text-3xl md:text-5xl font-semibold text-slate-700">{data.epic.summary}</p>
                 {(data.epic.cliente || data.epic.documento) && (
-                  <p className="text-xl md:text-2xl text-slate-400">
+                  <p className="text-xl md:text-2xl text-slate-600">
                     {data.epic.cliente}
                     {data.epic.cliente && data.epic.documento && ' · '}
                     {data.epic.documento && `Doc: ${data.epic.documento}`}
@@ -125,8 +125,8 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
               </div>
             ) : (
               <div className="space-y-3 max-w-5xl">
-                <p className="font-mono font-bold text-5xl md:text-7xl text-white">{data.subtask?.key}</p>
-                <p className="text-3xl md:text-5xl font-semibold text-slate-200">{data.subtask?.summary}</p>
+                <p className="font-mono font-bold text-5xl md:text-7xl text-slate-900">{data.subtask?.key}</p>
+                <p className="text-3xl md:text-5xl font-semibold text-slate-700">{data.subtask?.summary}</p>
                 <p className="text-xl text-slate-500">Quadro sem épico associado</p>
               </div>
             )}
@@ -136,7 +136,7 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
               v.total > 0 ? (
                 <div className="w-full max-w-4xl space-y-5">
                   <div
-                    className={`h-10 rounded-full overflow-hidden ${v.completo ? 'bg-emerald-950' : 'bg-blue-950'}`}
+                    className={`h-10 rounded-full overflow-hidden ${v.completo ? 'bg-emerald-100' : 'bg-blue-100'}`}
                     role="meter"
                     aria-valuemin={0}
                     aria-valuemax={v.total}
@@ -144,17 +144,17 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
                     aria-label="Quadros expedidos"
                   >
                     <div
-                      className={`h-full rounded-full transition-[width] duration-700 ${v.completo ? 'bg-emerald-500' : 'bg-blue-500'}`}
+                      className={`h-full rounded-full transition-[width] duration-700 ${v.completo ? 'bg-emerald-600' : 'bg-blue-600'}`}
                       style={{ width: `${v.pct}%` }}
                     />
                   </div>
                   <p className="text-6xl md:text-8xl font-semibold">
                     {v.expedido}<span className="text-slate-500"> / {v.total}</span>
                   </p>
-                  <p className="text-2xl md:text-3xl text-slate-400">
+                  <p className="text-2xl md:text-3xl text-slate-600">
                     {v.completo
                       ? 'todos os quadros expedidos'
-                      : <>quadros expedidos · <span className="text-slate-200 font-semibold">faltam {v.faltam}</span></>}
+                      : <>quadros expedidos · <span className="text-slate-900 font-semibold">faltam {v.faltam}</span></>}
                   </p>
                 </div>
               ) : (
@@ -171,7 +171,7 @@ export default function ExpedicaoClient({ data, errorAt, updatedAt }: ExpedicaoS
       {/* Rodapé: último quadro */}
       {data && !v.showIdle && !data.idle && data.subtask && (
         <footer className="text-center text-lg md:text-xl text-slate-500">
-          Último quadro: <span className="font-mono text-slate-400">{data.subtask.key}</span>
+          Último quadro: <span className="font-mono text-slate-600">{data.subtask.key}</span>
           {' — '}{data.subtask.summary}
           {data.expeditedAt && ` · ${fmtHora(data.expeditedAt)}`}
         </footer>
