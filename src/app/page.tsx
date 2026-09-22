@@ -216,7 +216,7 @@ export default function Home() {
           <h1 className="font-bold text-lg leading-tight">Shine Windows</h1>
           <p className="text-slate-400 text-xs">Controle de Produção</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
           {issue ? (
             <button onClick={handleClear} className="text-slate-300 text-sm underline">
               Nova leitura
@@ -226,8 +226,12 @@ export default function Home() {
               <a href="/quadros" className="text-slate-300 text-xs underline whitespace-nowrap">
                 📦 Quadros
               </a>
+              {/* Tela da TV: alterna entre resumo e expedição sozinha */}
+              <a href="/painel" className="text-slate-300 text-xs underline whitespace-nowrap">
+                📺 Painel
+              </a>
               <a href="/expedicao" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📺 Expedição
+                🚚 Expedição
               </a>
               <a href="/resumo" className="text-slate-300 text-xs underline whitespace-nowrap">
                 📊 Resumo
