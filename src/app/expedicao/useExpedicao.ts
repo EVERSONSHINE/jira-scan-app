@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import type { ExpedicaoData } from '@/lib/expedicao';
+import { marcarSucesso } from '@/lib/autoreload';
 
 const POLL_MS = 15_000;
 
@@ -29,6 +30,7 @@ export function useExpedicao(): ExpedicaoState {
         if (!res.ok || json?.error) throw new Error(json?.error ?? `HTTP ${res.status}`);
         setData(json);
         setErrorAt(null);
+        marcarSucesso();
         setUpdatedAt(new Date().toLocaleTimeString('pt-BR'));
       } catch (e) {
         if (!(e instanceof DOMException && e.name === 'AbortError')) {

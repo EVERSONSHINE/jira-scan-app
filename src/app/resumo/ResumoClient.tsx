@@ -1,6 +1,7 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { STATUS_ORDER, OUTROS, STATUS_CHART_LIGHT, STATUS_CHART_DARK } from '@/lib/status';
+import { marcarSucesso } from '@/lib/autoreload';
 
 const POLL_MS = 15_000;
 
@@ -384,6 +385,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
       if (!res.ok || json?.error) throw new Error(json?.error ?? `HTTP ${res.status}`);
       setData(json);
       setError(null);
+      marcarSucesso();
       setUpdatedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
     } catch (e) {
       setError(String(e));

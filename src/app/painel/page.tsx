@@ -1,8 +1,14 @@
 'use client';
+import { useEffect } from 'react';
 import ResumoClient from '../resumo/ResumoClient';
 import ExpedicaoClient from '../expedicao/ExpedicaoClient';
 import { useExpedicao } from '../expedicao/useExpedicao';
 import { expedicaoAtiva } from '@/lib/expedicao';
+import { deveRecarregar } from '@/lib/autoreload';
+import { useWakeLock } from './useWakeLock';
+
+/** De quanto em quanto tempo checar se a página travou */
+const CHECAGEM_MS = 30_000;
 
 /**
  * Painel da TV. Produção e expedição se alternam na fábrica — enquanto ninguém
@@ -15,6 +21,19 @@ import { expedicaoAtiva } from '@/lib/expedicao';
  */
 export default function PainelPage() {
   const state = useExpedicao();
+
+  useWakeLock();
+
+  // A TV fica sem ninguém por perto: se o app travar, só um reload o desfaz
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (deveRecarregar({ online: navigator.onLine, oculto: document.hidden })) {
+        location.reload();
+      }
+    }, CHECAGEM_MS);
+    return () => clearInterval(id);
+  }, []);
+
   return expedicaoAtiva(state.data)
     ? <ExpedicaoClient {...state} />
     : <ResumoClient tv />;
