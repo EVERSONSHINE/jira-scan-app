@@ -457,7 +457,7 @@ export default function Home() {
                     Aplicar a todas as <b>{lote.subtasks.length} subtasks</b> da task{' '}
                     <span className="font-mono font-semibold">{lote.task}</span>
                     <span className="block text-xs text-slate-500 mt-0.5">
-                      Status e localização valem para todas. As outras só avançam de status, nunca voltam.
+                      Status e localização valem para todas, para frente ou para trás.
                     </span>
                   </span>
                 </label>

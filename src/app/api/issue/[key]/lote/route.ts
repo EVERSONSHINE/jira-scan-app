@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  jiraFetch, normalize, listTaskSubtasks, transitionForward, setLocalizacao,
+  jiraFetch, normalize, listTaskSubtasks, transitionTo, setLocalizacao,
   cascadeStatus, emLotes, statusRank, type SubtaskLite,
 } from '@/lib/jira';
 import { canonicalStatus } from '@/lib/status';
@@ -30,11 +30,12 @@ async function subtasksDaTask(key: string): Promise<SubtaskLite[] | null> {
 /**
  * Aplica status ou localização a todas as subtasks da Task da issue lida.
  *
- * Status: a issue lida faz exatamente a transição clicada (pode voltar, como
- * na tela normal — é assim que se corrige um erro); as irmãs só avançam, nunca
- * regridem, e sem transição no workflow são puladas. Se a lida falhar, as
- * irmãs não são tocadas. A cascata Task → Épico roda uma vez, no fim, quando
- * todas já mudaram — por subtask, a Task seria calculada com irmãs defasadas.
+ * Status: todas vão para o status escolhido, para frente ou para trás — o lote
+ * também é como se corrige um lote marcado por engano. A lida vai pela
+ * transição clicada; irmãs sem a transição no workflow são puladas. Se a lida
+ * falhar, as irmãs não são tocadas. A cascata Task → Épico roda uma vez, no
+ * fim, quando todas já mudaram — por subtask, a Task seria calculada com irmãs
+ * defasadas. Se alguma voltou, Task e Épico podem voltar junto.
  *
  * Localização: sobrescreve em todas, incluindo a lida.
  */
@@ -85,28 +86,31 @@ export async function POST(
       return NextResponse.json({ error: `Transição para "${body.status}" não disponível em ${key}` }, { status: 400 });
     }
 
-    // 2. As irmãs, só para frente
+    // 2. As irmãs, na direção que for
     const irmas = subtasks.filter((s) => s.key !== key);
     resultados.push(...await emLotes(irmas, CONCORRENCIA, async (s): Promise<Resultado> => {
       if (s.status === alvo) return { key: s.key, ok: true, de: alvo, para: alvo, motivo: 'já estava' };
       try {
-        const movido = await transitionForward(s.key, s.status, body.status);
+        const movido = await transitionTo(s.key, s.status, body.status);
         if (movido) return { key: s.key, ok: true, de: s.status, para: alvo };
-        const motivo = statusRank(s.status) > statusRank(alvo)
-          ? 'mais adiantada, não regride'
-          : 'sem transição no workflow';
-        return { key: s.key, ok: false, de: s.status, para: s.status, motivo };
+        return { key: s.key, ok: false, de: s.status, para: s.status, motivo: 'sem transição no workflow' };
       } catch (e) {
         return { key: s.key, ok: false, de: s.status, para: s.status, motivo: String(e).slice(0, 120) };
       }
     }));
 
-    // 3. Cascata uma vez só, com a mesma condição da rota de transição simples
+    // 3. Cascata uma vez só: na ida para Concluido/Expedido (como a rota de
+    // transição simples) ou quando alguma voltou — aí Task e Épico voltam junto
     let updated: Awaited<ReturnType<typeof cascadeStatus>> = [];
     const toNorm = normalize(body.status);
-    if (toNorm === 'concluido' || toNorm === 'expedido') {
+    const regrediu = resultados.some((r) => r.ok && statusRank(r.para) < statusRank(r.de));
+    if (toNorm === 'concluido' || toNorm === 'expedido' || regrediu) {
       try {
-        updated = await cascadeStatus(key);
+        updated = await cascadeStatus(key, {
+          permitirRegressao: regrediu,
+          // O lote sabe o status final de cada uma; `para` = `de` nas puladas
+          conhecidos: Object.fromEntries(resultados.map((r) => [r.key, r.para])),
+        });
       } catch {
         // Falha na propagação não desfaz as transições das subtasks
       }
