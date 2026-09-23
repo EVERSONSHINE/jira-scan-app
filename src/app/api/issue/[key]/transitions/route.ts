@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jiraFetch, normalize, cascadeStatus } from '@/lib/jira';
+import { jiraFetch, normalize, cascadeStatus, statusRank } from '@/lib/jira';
 
 export async function GET(
   _req: NextRequest,
@@ -28,11 +28,15 @@ export async function POST(
   const { key } = await params;
   const { transitionId } = await req.json() as { transitionId: string };
   try {
-    // Descobre o status de destino antes de executar a transição
-    const data = await jiraFetch(`/rest/api/3/issue/${key}/transitions`);
+    // Descobre os status de origem e destino antes de executar a transição
+    const [data, atual] = await Promise.all([
+      jiraFetch(`/rest/api/3/issue/${key}/transitions`),
+      jiraFetch(`/rest/api/3/issue/${key}?fields=status`),
+    ]);
     const target = ((data?.transitions ?? []) as Array<{ id: string; to?: { name?: string } }>)
       .find((t) => t.id === transitionId);
     const toStatus = target?.to?.name ?? '';
+    const fromStatus = String(atual?.fields?.status?.name ?? '');
 
     await jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
       method: 'POST',
@@ -40,12 +44,18 @@ export async function POST(
     });
 
     // Subtask Concluido/Expedido → cascata Task → Epic
-    // (todas concluídas → Concluido; todas expedidas → Expedido; alguma andou → Em Andamento)
+    // (todas concluídas → Concluido; todas expedidas → Expedido; alguma andou → Em Andamento).
+    // Uma volta (correção de engano) também cascateia, e aí Task e Épico voltam junto.
     let updated: Array<{ key: string; status: string; nivel: 'task' | 'epic' }> = [];
     const toNorm = normalize(toStatus);
-    if (toNorm === 'concluido' || toNorm === 'expedido') {
+    // Destino fora do fluxo (rank -1) não conta como volta
+    const regrediu = statusRank(toStatus) >= 0 && statusRank(toStatus) < statusRank(fromStatus);
+    if (toNorm === 'concluido' || toNorm === 'expedido' || regrediu) {
       try {
-        updated = await cascadeStatus(key);
+        updated = await cascadeStatus(key, {
+          permitirRegressao: regrediu,
+          conhecidos: { [key]: toStatus },
+        });
       } catch {
         // Falha na propagação não desfaz a transição da subtask
       }

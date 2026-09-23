@@ -136,8 +136,10 @@ async function getChildStatuses(
  *  - todos Expedido → "Expedido"
  *  - todos Concluido ou além → "Concluido"
  *  - algum filho já andou (Em Andamento/Concluido/Expedido) → "Em Andamento"
+ *  - todos Tarefas Pendentes → "Tarefas Pendentes", só quando a cascata pode
+ *    regredir (é o único jeito de um pai chegar lá de volta)
  */
-function rollupTarget(statuses: string[]): string | null {
+function rollupTarget(statuses: string[], permitirRegressao = false): string | null {
   const total = statuses.length;
   if (total === 0) return null;
   const expedido = statuses.filter((s) => s === 'Expedido').length;
@@ -145,32 +147,60 @@ function rollupTarget(statuses: string[]): string | null {
   if (expedido === total) return 'Expedido';
   if (done === total) return 'Concluido';
   if (done > 0 || statuses.includes('Em Andamento')) return 'Em Andamento';
+  if (permitirRegressao && statuses.every((s) => s === 'Tarefas Pendentes')) return 'Tarefas Pendentes';
   return null;
 }
 
 /**
- * Transiciona a issue para o status-alvo, apenas para frente (nunca regride;
- * "Aberto" conta como "Tarefas Pendentes" via canonicalStatus).
- * Retorna o novo status, ou null se não aplicável/sem transição no workflow.
+ * Transiciona a issue para o status-alvo, em qualquer direção. Casa pelo
+ * status canônico: Tasks e Épicos chamam de "Aberto" o que as Subtasks chamam
+ * de "Tarefas pendentes". Retorna o nome do status no Jira, ou null se a issue
+ * já está nele ou o workflow não tem a transição.
  */
+export async function transitionTo(
+  key: string,
+  currentStatus: string,
+  target: string,
+): Promise<string | null> {
+  const alvo = canonicalStatus(target);
+  if (canonicalStatus(currentStatus) === alvo) return null;
+  const data = await jiraFetch(`/rest/api/3/issue/${key}/transitions`);
+  const transitions = (data?.transitions ?? []) as Array<{
+    id: string;
+    to?: { name?: string };
+  }>;
+  const tr = transitions.find((t) => canonicalStatus(t.to?.name ?? '') === alvo);
+  if (!tr) return null;
+  await jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
+    method: 'POST',
+    body: JSON.stringify({ transition: { id: tr.id } }),
+  });
+  return tr.to?.name ?? target;
+}
+
+/** transitionTo apenas para frente: nunca regride */
 export async function transitionForward(
   key: string,
   currentStatus: string,
   target: string,
 ): Promise<string | null> {
   if (statusRank(target) <= statusRank(currentStatus)) return null;
-  const data = await jiraFetch(`/rest/api/3/issue/${key}/transitions`);
-  const transitions = (data?.transitions ?? []) as Array<{
-    id: string;
-    to?: { name?: string };
-  }>;
-  const tr = transitions.find((t) => normalize(t.to?.name ?? '') === normalize(target));
-  if (!tr) return null;
-  await jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
-    method: 'POST',
-    body: JSON.stringify({ transition: { id: tr.id } }),
-  });
-  return target;
+  return transitionTo(key, currentStatus, target);
+}
+
+export interface CascadeOpts {
+  /**
+   * Deixa Task e Épico voltarem de status. Só quando a própria ação foi uma
+   * volta (correção de engano): numa ida, um pai adiantado à mão no Jira não
+   * deve ser puxado para trás pela cascata.
+   */
+  permitirRegressao?: boolean;
+  /**
+   * Status já conhecidos das subtasks, que valem sobre a busca: o índice do
+   * Jira pode ainda devolver o status antigo logo após a transição — com
+   * regressão ligada, isso puxaria o pai para o lugar errado.
+   */
+  conhecidos?: Record<string, string>;
 }
 
 /**
@@ -179,12 +209,16 @@ export async function transitionForward(
  *  2. Epic ← rollup das suas Tasks diretas (usando o status pós-transição
  *     da Task, já que a busca do Jira pode ainda refletir o antigo)
  * Regras: todas Expedido → Expedido; todas Concluido/Expedido → Concluido;
- * alguma andou → Em Andamento. Nunca regride nenhum nível.
+ * alguma andou → Em Andamento. Só regride com opts.permitirRegressao, e aí
+ * todas pendentes → volta o pai para Aberto.
  */
 export async function cascadeStatus(
   subtaskKey: string,
+  opts: CascadeOpts = {},
 ): Promise<Array<{ key: string; status: string; nivel: 'task' | 'epic' }>> {
   const updated: Array<{ key: string; status: string; nivel: 'task' | 'epic' }> = [];
+  const regride = opts.permitirRegressao ?? false;
+  const mover = regride ? transitionTo : transitionForward;
 
   const issue = await jiraFetch(`/rest/api/3/issue/${subtaskKey}?fields=parent`);
   const parent = issue?.fields?.parent;
@@ -208,9 +242,12 @@ export async function cascadeStatus(
 
   if (taskKey) {
     const subs = await getChildStatuses(taskKey, true);
-    const target = rollupTarget(subs.map((s) => s.status));
+    const statuses = subs.map((s) =>
+      opts.conhecidos?.[s.key] ? canonicalStatus(opts.conhecidos[s.key]) : s.status,
+    );
+    const target = rollupTarget(statuses, regride);
     if (target) {
-      const moved = await transitionForward(taskKey, taskStatus, target);
+      const moved = await mover(taskKey, taskStatus, target);
       if (moved) {
         updated.push({ key: taskKey, status: moved, nivel: 'task' });
         taskStatus = moved;
@@ -226,11 +263,13 @@ export async function cascadeStatus(
   if (epicKey) {
     const children = await getChildStatuses(epicKey, false);
     const statuses = children.map((c) =>
-      taskKey && c.key === taskKey ? canonicalStatus(taskStatus) : c.status,
+      taskKey && c.key === taskKey ? canonicalStatus(taskStatus)
+        : opts.conhecidos?.[c.key] ? canonicalStatus(opts.conhecidos[c.key])
+        : c.status,
     );
-    const target = rollupTarget(statuses);
+    const target = rollupTarget(statuses, regride);
     if (target) {
-      const moved = await transitionForward(epicKey, epicStatus, target);
+      const moved = await mover(epicKey, epicStatus, target);
       if (moved) updated.push({ key: epicKey, status: moved, nivel: 'epic' });
     }
   }
