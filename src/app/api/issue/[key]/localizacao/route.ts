@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jiraFetch } from '@/lib/jira';
+import { setLocalizacao } from '@/lib/jira';
 
 export async function PUT(
   req: NextRequest,
@@ -8,24 +8,9 @@ export async function PUT(
   const { key } = await params;
   const { fieldId, value } = await req.json() as { fieldId: string; value: string };
   try {
-    // Tenta formato {value: "..."} primeiro (select fields)
-    await jiraFetch(`/rest/api/3/issue/${key}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        fields: { [fieldId]: { value } },
-      }),
-    });
+    await setLocalizacao(key, fieldId, value);
     return NextResponse.json({ ok: true });
-  } catch {
-    try {
-      // Fallback: string direta
-      await jiraFetch(`/rest/api/3/issue/${key}`, {
-        method: 'PUT',
-        body: JSON.stringify({ fields: { [fieldId]: value } }),
-      });
-      return NextResponse.json({ ok: true });
-    } catch (e2) {
-      return NextResponse.json({ error: String(e2) }, { status: 500 });
-    }
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }

@@ -112,7 +112,7 @@ export async function countEpicSubtasksByStatus(
 }
 
 /** Posição do status na ordem do processo (-1 para "Outros") */
-function statusRank(raw: string): number {
+export function statusRank(raw: string): number {
   return (STATUS_ORDER as readonly string[]).indexOf(canonicalStatus(raw));
 }
 
@@ -153,7 +153,7 @@ function rollupTarget(statuses: string[]): string | null {
  * "Aberto" conta como "Tarefas Pendentes" via canonicalStatus).
  * Retorna o novo status, ou null se não aplicável/sem transição no workflow.
  */
-async function transitionForward(
+export async function transitionForward(
   key: string,
   currentStatus: string,
   target: string,
@@ -236,6 +236,56 @@ export async function cascadeStatus(
   }
 
   return updated;
+}
+
+export interface SubtaskLite {
+  key: string;
+  summary: string;
+  status: string;
+  modelo: string;
+  localizacao: string;
+}
+
+/** Subtasks diretas de uma Task (marcos e folhas do mesmo caixilho) */
+export async function listTaskSubtasks(taskKey: string): Promise<SubtaskLite[]> {
+  const rows = await searchAllIssues(
+    `parent = "${taskKey}" AND issuetype in subTaskIssueTypes() ORDER BY key ASC`,
+    ['summary', 'status', CF.modelo, CF.localizacao],
+  );
+  return rows.map((r) => ({
+    key: r.key,
+    summary: String(r.fields.summary ?? ''),
+    status: canonicalStatus(String((r.fields.status as { name?: string })?.name ?? '')),
+    modelo: cfValue(r.fields, CF.modelo),
+    localizacao: cfValue(r.fields, CF.localizacao),
+  }));
+}
+
+/** Grava a Localização: tenta o formato de select ({ value }), senão string direta */
+export async function setLocalizacao(key: string, fieldId: string, value: string) {
+  try {
+    await jiraFetch(`/rest/api/3/issue/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fields: { [fieldId]: { value } } }),
+    });
+  } catch {
+    await jiraFetch(`/rest/api/3/issue/${key}`, {
+      method: 'PUT',
+      body: JSON.stringify({ fields: { [fieldId]: value } }),
+    });
+  }
+}
+
+/**
+ * map com no máximo `limite` chamadas ao mesmo tempo — uma task grande não
+ * pode virar dezenas de requisições simultâneas ao Jira. Preserva a ordem.
+ */
+export async function emLotes<T, R>(itens: T[], limite: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < itens.length; i += limite) {
+    out.push(...await Promise.all(itens.slice(i, i + limite).map(fn)));
+  }
+  return out;
 }
 
 export interface JiraIssueLite {
