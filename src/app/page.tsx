@@ -1,7 +1,7 @@
 'use client';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { STATUS_ORDER } from '@/lib/status';
+import { STATUS_ORDER, canonicalStatus } from '@/lib/status';
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
@@ -34,6 +34,21 @@ interface Transition {
   id: string;
   name: string;
   toStatus: string;
+}
+
+/** Resposta de /api/issue/[key]/irmaos: a issue lida e as irmãs da mesma Task */
+interface Irmaos {
+  task: string | null;
+  subtasks: Array<{ key: string; summary: string; status: string; modelo: string; localizacao: string }>;
+}
+
+/** Uma linha do resultado de /api/issue/[key]/lote */
+interface ResultadoLote {
+  key: string;
+  ok: boolean;
+  de: string;
+  para: string;
+  motivo?: string;
 }
 
 // ─── Helpers de status ────────────────────────────────────────────────────────
@@ -82,6 +97,12 @@ export default function Home() {
   const [selectedLoc, setSelectedLoc]       = useState('');
   const [toast, setToast]                   = useState('');
 
+  // Aplicar a todas as subtasks da Task. Desmarca a cada leitura: ninguém
+  // deve alterar uma task inteira por ter esquecido a opção ligada.
+  const [irmaos, setIrmaos]                 = useState<Irmaos | null>(null);
+  const [emLote, setEmLote]                 = useState(false);
+  const [naoMudaram, setNaoMudaram]         = useState<ResultadoLote[]>([]);
+
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Toast ──────────────────────────────────────────────────────────────────
@@ -97,15 +118,21 @@ export default function Home() {
     setLoadingIssue(true);
     setIssue(null);
     setTransitions([]);
+    setIrmaos(null);
+    setEmLote(false);
+    setNaoMudaram([]);
     try {
-      const [issueRes, transRes] = await Promise.all([
+      const [issueRes, transRes, irmaosRes] = await Promise.all([
         fetch(`/api/issue/${k}`).then((r) => r.json()),
         fetch(`/api/issue/${k}/transitions`).then((r) => r.json()),
+        // Opcional: se falhar, a leitura segue normal, só sem a opção de lote
+        fetch(`/api/issue/${k}/irmaos`).then((r) => r.json()).catch(() => null),
       ]);
       if (issueRes.error) throw new Error(issueRes.error);
       setIssue(issueRes);
       setSelectedLoc(issueRes.localizacao ?? '');
       setTransitions(Array.isArray(transRes) ? transRes : []);
+      setIrmaos(irmaosRes && !irmaosRes.error ? irmaosRes : null);
     } catch (e) {
       showToast(`Erro: ${e}`);
     } finally {
@@ -139,31 +166,76 @@ export default function Home() {
     }, 500);
   };
 
+  // ── Lote: todas as subtasks da Task ────────────────────────────────────────
+  // Só existe para subtask de uma Task com mais de uma subtask
+  const lote = irmaos?.task && irmaos.subtasks.length > 1 ? irmaos : null;
+  const emLoteAtivo = emLote && lote !== null;
+
+  const recarregarIrmaos = (key: string) => {
+    fetch(`/api/issue/${key}/irmaos`)
+      .then((r) => r.json())
+      .then((d) => { if (d && !d.error) setIrmaos(d); })
+      .catch(() => {});
+  };
+
+  const postLote = async (key: string, body: object): Promise<{
+    resultados: ResultadoLote[];
+    updated: Array<{ key: string; status: string }>;
+  }> => {
+    const res = await fetch(`/api/issue/${key}/lote`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    return { resultados: data.resultados ?? [], updated: data.updated ?? [] };
+  };
+
   // ── Atualiza status ─────────────────────────────────────────────────────────
   const handleStatusChange = async (statusName: string) => {
     if (!issue || updatingStatus) return;
     const tr = transitions.find(
       (t) => t.toStatus.toLowerCase() === statusName.toLowerCase(),
     );
-    if (!tr) { showToast(`Transição "${statusName}" não disponível`); return; }
+    // Em lote, a lida já no status escolhido não precisa de transição: o
+    // clique ainda serve para levar as irmãs até ele
+    const jaNoStatus = canonicalStatus(issue.status) === canonicalStatus(statusName);
+    if (!tr && !(emLoteAtivo && jaNoStatus)) {
+      showToast(`Transição "${statusName}" não disponível`);
+      return;
+    }
 
     setUpdatingStatus(true);
+    setNaoMudaram([]);
     const prev = issue.status;
     setIssue((i) => i ? { ...i, status: statusName } : i);   // optimistic
 
     try {
-      const res = await fetch(`/api/issue/${issue.key}/transitions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transitionId: tr.id }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      const cascata = (data.updated ?? []) as Array<{ key: string; status: string }>;
+      let cascata: Array<{ key: string; status: string }>;
+      let resumo = `Status → ${statusName}`;
+      if (emLoteAtivo) {
+        const { resultados, updated } = await postLote(issue.key, {
+          acao: 'status', transitionId: tr?.id, status: statusName,
+        });
+        cascata = updated;
+        resumo = `${resultados.filter((r) => r.ok).length}/${resultados.length} subtasks → ${statusName}`;
+        setNaoMudaram(resultados.filter((r) => !r.ok));
+        recarregarIrmaos(issue.key);
+      } else {
+        const res = await fetch(`/api/issue/${issue.key}/transitions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transitionId: tr!.id }),   // fora do lote o guard exige tr
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        cascata = data.updated ?? [];
+      }
       showToast(
         cascata.length > 0
-          ? `Status → ${statusName} · ${cascata.map((u) => `${u.key} → ${u.status}`).join(' · ')}`
-          : `Status → ${statusName}`,
+          ? `${resumo} · ${cascata.map((u) => `${u.key} → ${u.status}`).join(' · ')}`
+          : resumo,
       );
       // Recarrega transições disponíveis
       fetch(`/api/issue/${issue.key}/transitions`)
@@ -181,7 +253,20 @@ export default function Home() {
   const handleLocalizacaoSave = async () => {
     if (!issue || !issue.localizacaoFieldId || updatingLoc) return;
     setUpdatingLoc(true);
+    setNaoMudaram([]);
     try {
+      if (emLoteAtivo) {
+        const { resultados } = await postLote(issue.key, {
+          acao: 'localizacao', fieldId: issue.localizacaoFieldId, value: selectedLoc,
+        });
+        setNaoMudaram(resultados.filter((r) => !r.ok));
+        if (resultados.some((r) => r.key === issue.key && r.ok)) {
+          setIssue((i) => i ? { ...i, localizacao: selectedLoc } : i);
+        }
+        showToast(`${resultados.filter((r) => r.ok).length}/${resultados.length} subtasks → ${selectedLoc}`);
+        recarregarIrmaos(issue.key);
+        return;
+      }
       const res = await fetch(`/api/issue/${issue.key}/localizacao`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -202,6 +287,9 @@ export default function Home() {
   const handleClear = () => {
     setIssue(null);
     setTransitions([]);
+    setIrmaos(null);
+    setEmLote(false);
+    setNaoMudaram([]);
     setSearchQuery('');
     setSearchResults([]);
   };
@@ -354,9 +442,68 @@ export default function Home() {
               </div>
             </div>
 
+            {/* Aplicar a todas as subtasks da Task */}
+            {lote && (
+              <div className={`bg-white rounded-2xl shadow-sm border-2 p-4 ${emLote ? 'border-amber-400' : 'border-slate-200'}`}>
+                <label className="flex items-start gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={emLote}
+                    onChange={(e) => { setEmLote(e.target.checked); setNaoMudaram([]); }}
+                    disabled={updatingStatus || updatingLoc}
+                    className="mt-0.5 w-5 h-5 shrink-0 accent-amber-500"
+                  />
+                  <span className="text-sm text-slate-700">
+                    Aplicar a todas as <b>{lote.subtasks.length} subtasks</b> da task{' '}
+                    <span className="font-mono font-semibold">{lote.task}</span>
+                    <span className="block text-xs text-slate-500 mt-0.5">
+                      Status e localização valem para todas. As outras só avançam de status, nunca voltam.
+                    </span>
+                  </span>
+                </label>
+
+                {/* O que vai mudar — visível só com a opção ligada */}
+                {emLote && (
+                  <ul className="mt-3 divide-y divide-slate-100 border-t border-slate-100 text-xs">
+                    {lote.subtasks.map((s) => (
+                      <li key={s.key} className="flex items-center gap-2 py-1.5">
+                        <span className={`font-mono ${s.key === issue.key ? 'font-bold text-slate-800' : 'text-slate-600'}`}>
+                          {s.key}
+                        </span>
+                        {s.modelo && <span className="text-slate-500">{s.modelo}</span>}
+                        <span className="ml-auto flex items-center gap-2">
+                          {s.localizacao && <span className="font-mono text-slate-500">{s.localizacao}</span>}
+                          <StatusBadge status={s.status} />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Irmãs que não mudaram na última ação em lote */}
+                {naoMudaram.length > 0 && (
+                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-300 px-3 py-2 text-xs text-amber-800">
+                    <p className="font-semibold mb-1">
+                      {naoMudaram.length} {naoMudaram.length === 1 ? 'subtask não mudou' : 'subtasks não mudaram'}
+                    </p>
+                    <ul className="space-y-0.5">
+                      {naoMudaram.map((r) => (
+                        <li key={r.key}>
+                          <span className="font-mono">{r.key}</span> — {r.motivo ?? 'erro'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Alterar Status */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-              <h2 className="font-semibold text-slate-700 text-sm mb-3">Alterar Status</h2>
+            <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
+              <h2 className="font-semibold text-slate-700 text-sm mb-3">
+                Alterar Status
+                {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
+              </h2>
               <div className="grid grid-cols-2 gap-2">
                 {STATUSES.map((s) => {
                   const isActive = issue.status === s;
@@ -386,8 +533,11 @@ export default function Home() {
 
             {/* Alterar Localização */}
             {issue.localizacaoFieldId && (
-              <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4">
-                <h2 className="font-semibold text-slate-700 text-sm mb-3">Localização</h2>
+              <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
+                <h2 className="font-semibold text-slate-700 text-sm mb-3">
+                  Localização
+                  {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
+                </h2>
                 {issue.localizacaoOptions.length > 0 ? (
                   <select
                     value={selectedLoc}
@@ -409,12 +559,20 @@ export default function Home() {
                   />
                 )}
                 <button
-                  disabled={updatingLoc || selectedLoc === issue.localizacao}
+                  disabled={
+                    updatingLoc || (emLoteAtivo
+                      // Em lote a lida pode já estar certa e as irmãs não; vazio
+                      // em lote apagaria a localização da task inteira
+                      ? !selectedLoc || !!lote?.subtasks.every((s) => s.localizacao === selectedLoc)
+                      : selectedLoc === issue.localizacao)
+                  }
                   onClick={handleLocalizacaoSave}
                   className="mt-3 w-full bg-slate-800 text-white py-3 rounded-xl font-medium text-sm
                     disabled:opacity-40 active:bg-slate-700 transition-colors"
                 >
-                  {updatingLoc ? 'Salvando…' : 'Salvar Localização'}
+                  {updatingLoc
+                    ? 'Salvando…'
+                    : emLoteAtivo ? `Salvar em ${lote?.subtasks.length} subtasks` : 'Salvar Localização'}
                 </button>
                 {issue.localizacao && (
                   <p className="text-slate-400 text-xs mt-1 text-center">
@@ -439,7 +597,9 @@ export default function Home() {
       {/* Toast */}
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm
-          px-5 py-3 rounded-full shadow-lg z-50 whitespace-nowrap">
+          px-5 py-3 rounded-2xl shadow-lg z-50 w-max max-w-[calc(100vw-2rem)] text-center">
+          {/* Quebra linha em vez de vazar da tela: o resumo do lote e a
+              cascata passam da largura de um celular */}
           {toast}
         </div>
       )}
