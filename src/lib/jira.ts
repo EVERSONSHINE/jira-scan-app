@@ -51,6 +51,28 @@ export function normalize(s: string) {
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 }
 
+/** Timestamp exato da última transição status → Expedido, via changelog */
+export async function getExpeditedAt(key: string): Promise<string | null> {
+  let startAt = 0;
+  let latest: string | null = null;
+  for (let page = 0; page < 20; page++) {
+    const data = await jiraFetch(`/rest/api/3/issue/${key}/changelog?startAt=${startAt}&maxResults=100`);
+    const histories = (data?.values ?? []) as Array<{
+      created: string;
+      items: Array<{ field: string; toString?: string }>;
+    }>;
+    for (const h of histories) {
+      const hit = h.items.some(
+        (it) => it.field === 'status' && normalize(it.toString ?? '') === 'expedido',
+      );
+      if (hit && (!latest || h.created > latest)) latest = h.created;
+    }
+    if (data?.isLast !== false) break;
+    startAt += histories.length;
+  }
+  return latest;
+}
+
 /** Sobe a hierarquia de pais (subtask → task → epic) até encontrar um Epic */
 export async function findEpicAbove(
   key: string,

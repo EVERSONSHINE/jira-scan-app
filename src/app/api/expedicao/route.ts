@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server';
 import {
   jiraFetch,
-  normalize,
   findEpicAbove,
   listEpicSubtasks,
   getCustomFieldMapCached,
   cfValue,
+  getExpeditedAt,
   CF,
 } from '@/lib/jira';
 import { canonicalStatus, STATUS_ORDER } from '@/lib/status';
@@ -13,28 +13,6 @@ import { canonicalStatus, STATUS_ORDER } from '@/lib/status';
 export const dynamic = 'force-dynamic';
 // Changelog + contagem do épico fazem várias chamadas ao Jira; 10s padrão é pouco
 export const maxDuration = 60;
-
-/** Timestamp exato da última transição status → Expedido, via changelog */
-async function getExpeditedAt(key: string): Promise<string | null> {
-  let startAt = 0;
-  let latest: string | null = null;
-  for (let page = 0; page < 20; page++) {
-    const data = await jiraFetch(`/rest/api/3/issue/${key}/changelog?startAt=${startAt}&maxResults=100`);
-    const histories = (data?.values ?? []) as Array<{
-      created: string;
-      items: Array<{ field: string; toString?: string }>;
-    }>;
-    for (const h of histories) {
-      const hit = h.items.some(
-        (it) => it.field === 'status' && normalize(it.toString ?? '') === 'expedido',
-      );
-      if (hit && (!latest || h.created > latest)) latest = h.created;
-    }
-    if (data?.isLast !== false) break;
-    startAt += histories.length;
-  }
-  return latest;
-}
 
 /**
  * Contagem por status + onde estão os quadros que ainda faltam expedir.
