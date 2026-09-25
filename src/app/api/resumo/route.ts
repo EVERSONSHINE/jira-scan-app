@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { searchAllIssues, jiraFetch, normalize, cfValue, CF } from '@/lib/jira';
+import { lerExpedidosArquivados, somarDesde } from '@/lib/arquivo';
 import { canonicalStatus, STATUS_ORDER } from '@/lib/status';
 
 export const dynamic = 'force-dynamic';
@@ -64,10 +65,14 @@ export async function GET() {
       ...Object.values(CF),
     ];
 
-    const [issues, expedidosHoje, expedidosSemana, movidosParaConcluido] = await Promise.all([
+    const [issues, expedidosHoje, expedidosSemanaBusca, arquivados, movidosParaConcluido] = await Promise.all([
       searchAllIssues(`project = "${project}" ORDER BY created ASC`, fields),
       approxCount(`project = "${project}" AND issuetype in subTaskIssueTypes() AND status CHANGED TO "Expedido" AFTER startOfDay()`),
       approxCount(`project = "${project}" AND issuetype in subTaskIssueTypes() AND status CHANGED TO "Expedido" AFTER -7d`),
+      // O arquivamento da madrugada tira os expedidos da busca; ele anota quantos
+      // eram, e a semana soma os dois. O "hoje" não precisa: nada expedido hoje
+      // é arquivado (lib/arquivo.ts)
+      lerExpedidosArquivados(project),
       // Conjunto de issues que passaram por "Concluido" na janela. Sem filtro de
       // issuetype de propósito: quem é "quadro" aqui é o campo Modelo, não o issue
       // type — o recorte certo vem da interseção com quadroRows, abaixo.
@@ -79,6 +84,9 @@ export async function GET() {
     ]);
 
     const concluidoKeys = new Set(movidosParaConcluido.map((i) => i.key));
+    const expedidosSemana = expedidosSemanaBusca === null
+      ? null
+      : expedidosSemanaBusca + somarDesde(arquivados, new Date(Date.now() - 7 * 24 * 3600_000));
 
     interface Row {
       key: string; summary: string; status: string; parentKey: string;
