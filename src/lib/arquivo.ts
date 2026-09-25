@@ -93,8 +93,9 @@ export interface ResultadoArquivo {
  * que o Épico foi para Expedido. Pula o que terminou hoje, para a TV e o
  * "expedidos hoje" do Resumo seguirem certos.
  *
- * Cada nível é arquivado explicitamente: arquivar a Task leva as Subtasks
- * junto (testado), mas o comportamento do Épico não foi verificado.
+ * Vão para o Jira o Épico e as Tasks, explicitamente. Subtask não: o Jira
+ * recusa arquivá-la direto ("Issue is a subtask") e a arquiva junto com a Task
+ * mãe — as duas coisas verificadas.
  *
  * Idempotente: o que foi arquivado some da busca e não é visto de novo; o que
  * sobrar por limite de tempo é pego na noite seguinte.
@@ -153,7 +154,7 @@ export async function arquivarExpedidos(
 
       let anotados = instantes.length;
       if (!opts.simular) {
-        await arquivarIssues(keys);
+        await arquivarIssues([e.key, ...tasks.map((i) => i.key)]);
         // Depois de arquivar: se falhar aqui, o Resumo conta a menos, e não
         // em dobro para sempre (o que aconteceria anotando antes e o
         // arquivamento falhando)
