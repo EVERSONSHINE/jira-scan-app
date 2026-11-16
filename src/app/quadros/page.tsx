@@ -1,303 +1,476 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { canonicalStatus } from '@/lib/status';
+import CabecalhoGestao from '@/components/CabecalhoGestao';
+import Icone from '@/components/Icone';
+import Logo from '@/components/Logo';
+import { canonicalStatus, statusLabel, statusSelo } from '@/lib/status';
+import type { ObraLoc, PecaLoc } from '@/lib/tipos';
+import {
+  dataCurta, dataLonga, diasEntre, hojeISO, legivel, mm, nomeObra, prazoRelativo,
+} from '@/lib/formato';
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
+/**
+ * Relatório de localização para o PCP: onde está cada peça das obras
+ * escolhidas, por obra ou por local, pronto para imprimir em A4 deitado.
+ */
 
-interface EpicItem {
-  key: string;
-  summary: string;
-  status: string;
-  cliente: string;
-  documento: string;
+interface ObraResumo {
+  key: string; summary: string; status: string; duedate: string | null;
+  cliente: string; documento: string;
 }
 
-interface QuadroItem {
-  key: string;
-  summary: string;
-  status: string;
-  tipo: string;
-  modelo: string;
-  localizacao: string;
-}
+/** Mesmo limite da API */
+const MAX_OBRAS = 40;
 
-// ─── Helpers visuais (mesma linguagem de page.tsx) ───────────────────────────
+interface Linha { obra: ObraLoc; caixilho: string; peca: PecaLoc }
 
-const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  'Tarefas Pendentes': { bg: 'bg-slate-100',   text: 'text-slate-700',   border: 'border-slate-300' },
-  'Em Andamento':      { bg: 'bg-amber-100',   text: 'text-amber-700',   border: 'border-amber-400' },
-  'Concluido':         { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-400' },
-  'Expedido':          { bg: 'bg-blue-100',    text: 'text-blue-700',    border: 'border-blue-400' },
-};
+const naturais = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { numeric: true });
 
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLES[canonicalStatus(status)] ??
-    { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300' };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap ${s.bg} ${s.text} ${s.border}`}>
-      {status}
-    </span>
-  );
-}
-
-/** Valores distintos (não vazios) de um campo, ordenados */
-function distinct(rows: QuadroItem[], get: (q: QuadroItem) => string): string[] {
-  return [...new Set(rows.map(get).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-}
-
-// ─── Componente principal ────────────────────────────────────────────────────
-
-export default function QuadrosPage() {
-  const [epics, setEpics] = useState<EpicItem[]>([]);
-  const [loadingEpics, setLoadingEpics] = useState(true);
-  const [epicsError, setEpicsError] = useState('');
+export default function LocalizacaoPage() {
+  const [obras, setObras] = useState<ObraResumo[]>([]);
+  const [carregandoObras, setCarregandoObras] = useState(true);
+  const [erroObras, setErroObras] = useState('');
   const [busca, setBusca] = useState('');
+  const [sel, setSel] = useState<string[]>([]);
+  const [listaAberta, setListaAberta] = useState(true);
 
-  const [epic, setEpic] = useState<EpicItem | null>(null);
-  const [quadros, setQuadros] = useState<QuadroItem[]>([]);
-  const [loadingQuadros, setLoadingQuadros] = useState(false);
-  const [quadrosError, setQuadrosError] = useState('');
+  const [rel, setRel] = useState<{ obras: ObraLoc[]; geradoEm: string } | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState('');
 
-  const [fTipo, setFTipo] = useState('');
-  const [fModelo, setFModelo] = useState('');
-  const [fLoc, setFLoc] = useState('');
-  const [fStatus, setFStatus] = useState('');
+  const [visao, setVisao] = useState<'obra' | 'local'>('obra');
+  const [mostrar, setMostrar] = useState<'fabrica' | 'todas'>('fabrica');
 
+  const hoje = hojeISO();
+
+  // Obras escolhidas ficam no endereço: dá para salvar o link ou mandar para alguém
   useEffect(() => {
+    const p = new URLSearchParams(location.search);
+    const ini = (p.get('obras') ?? '').split(',').filter(Boolean);
+    if (ini.length) { setSel(ini); setListaAberta(false); }
+    if (p.get('visao') === 'local') setVisao('local');
+    if (p.get('mostrar') === 'todas') setMostrar('todas');
+
     fetch('/api/epicos')
       .then((r) => r.json())
       .then((data) => {
         if (data.error) throw new Error(data.error);
-        setEpics(Array.isArray(data) ? data : []);
+        setObras(Array.isArray(data) ? data : []);
       })
-      .catch((e) => setEpicsError(String(e)))
-      .finally(() => setLoadingEpics(false));
+      .catch((e) => setErroObras(String(e)))
+      .finally(() => setCarregandoObras(false));
   }, []);
 
-  const selectEpic = async (e: EpicItem) => {
-    setEpic(e);
-    setQuadros([]);
-    setQuadrosError('');
-    setFTipo(''); setFModelo(''); setFLoc(''); setFStatus('');
-    setLoadingQuadros(true);
-    try {
-      const res = await fetch(`/api/epicos/${e.key}/quadros`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setQuadros(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setQuadrosError(String(err));
-    } finally {
-      setLoadingQuadros(false);
-    }
-  };
+  useEffect(() => {
+    const p = new URLSearchParams();
+    if (sel.length) p.set('obras', sel.join(','));
+    if (visao === 'local') p.set('visao', 'local');
+    if (mostrar === 'todas') p.set('mostrar', 'todas');
+    const q = p.toString();
+    history.replaceState(null, '', q ? `?${q}` : location.pathname);
+  }, [sel, visao, mostrar]);
 
-  const epicsFiltrados = useMemo(() => {
+  // Busca as peças quando a seleção para de mudar
+  useEffect(() => {
+    if (sel.length === 0) { setRel(null); setErro(''); return; }
+    const ctrl = new AbortController();
+    const t = setTimeout(async () => {
+      setCarregando(true);
+      setErro('');
+      try {
+        const res = await fetch(`/api/localizacao?obras=${sel.join(',')}`, { signal: ctrl.signal });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        setRel(data);
+      } catch (e) {
+        if (!(e instanceof DOMException && e.name === 'AbortError')) setErro(String(e));
+      } finally {
+        if (!ctrl.signal.aborted) setCarregando(false);
+      }
+    }, 450);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [sel]);
+
+  const obrasFiltradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    if (!q) return epics;
-    return epics.filter((e) =>
-      [e.key, e.summary, e.cliente, e.documento].some((v) => v.toLowerCase().includes(q)),
+    if (!q) return obras;
+    return obras.filter((o) =>
+      [o.key, o.summary, o.cliente, o.documento].some((v) => v.toLowerCase().includes(q)),
     );
-  }, [epics, busca]);
+  }, [obras, busca]);
 
-  const tipos = useMemo(() => distinct(quadros, (q) => q.tipo), [quadros]);
-  const modelos = useMemo(() => distinct(quadros, (q) => q.modelo), [quadros]);
-  const locs = useMemo(() => distinct(quadros, (q) => q.localizacao), [quadros]);
-  const statuses = useMemo(() => distinct(quadros, (q) => q.status), [quadros]);
+  const alternar = (k: string) =>
+    setSel((s) => s.includes(k) ? s.filter((x) => x !== k) : s.length >= MAX_OBRAS ? s : [...s, k]);
 
-  const quadrosFiltrados = useMemo(() => {
-    return quadros
-      .filter((q) =>
-        (!fTipo || q.tipo === fTipo) &&
-        (!fModelo || q.modelo === fModelo) &&
-        (!fLoc || q.localizacao === fLoc) &&
-        (!fStatus || q.status === fStatus),
-      )
-      // Ordena por localização (vazias por último) para facilitar a coleta física
-      .sort((a, b) => {
-        if (!a.localizacao !== !b.localizacao) return a.localizacao ? -1 : 1;
-        const l = a.localizacao.localeCompare(b.localizacao, 'pt-BR');
-        return l !== 0 ? l : a.key.localeCompare(b.key, 'pt-BR', { numeric: true });
-      });
-  }, [quadros, fTipo, fModelo, fLoc, fStatus]);
+  /** Peças que entram no relatório, já filtradas */
+  const visivel = (p: PecaLoc) => mostrar === 'todas' || canonicalStatus(p.status) !== 'Expedido';
 
-  const temFiltro = !!(fTipo || fModelo || fLoc || fStatus);
+  const linhas: Linha[] = useMemo(() => {
+    if (!rel) return [];
+    return rel.obras.flatMap((o) =>
+      o.caixilhos.flatMap((c) => c.pecas.filter(visivel).map((p) => ({ obra: o, caixilho: c.tipo || c.key, peca: p }))),
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rel, mostrar]);
+
+  const semLocal = linhas.filter((l) => !l.peca.loc).length;
+  const emitido = rel ? new Date(rel.geradoEm).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  }) : '';
 
   return (
-    <div className="max-w-lg mx-auto min-h-screen flex flex-col">
-
-      {/* Header */}
-      <header className="bg-slate-800 text-white px-4 py-4 flex items-center justify-between sticky top-0 z-10 shadow">
-        <div>
-          <h1 className="font-bold text-lg leading-tight">Quadros</h1>
-          <p className="text-slate-400 text-xs">Localização por projeto</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {epic ? (
-            <button onClick={() => { setEpic(null); setQuadros([]); }} className="text-slate-300 text-sm underline">
-              Trocar projeto
-            </button>
-          ) : (
-            <a href="/" className="text-slate-300 text-xs underline whitespace-nowrap">← Início</a>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 p-4 space-y-4">
-
-        {/* Passo 1: escolher o Epic */}
-        {!epic && (
-          <>
-            <input
-              type="text"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por cliente, documento ou chave…"
-              className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm bg-white
-                focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
-
-            {loadingEpics && (
-              <p className="text-center text-slate-400 text-sm py-6">Carregando projetos…</p>
-            )}
-            {epicsError && (
-              <p className="text-center text-red-600 text-sm py-4">Erro: {epicsError}</p>
-            )}
-            {!loadingEpics && !epicsError && epicsFiltrados.length === 0 && (
-              <p className="text-center text-slate-400 text-sm py-6">Nenhum projeto encontrado.</p>
-            )}
-
-            <ul className="space-y-2">
-              {epicsFiltrados.map((e) => (
-                <li key={e.key}>
-                  <button
-                    onClick={() => selectEpic(e)}
-                    className="w-full text-left bg-white rounded-2xl shadow-sm border border-slate-200 px-4 py-3
-                      hover:bg-slate-50 active:bg-slate-100"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono font-bold text-slate-800 text-sm">{e.key}</span>
-                      <StatusBadge status={e.status} />
-                    </div>
-                    <p className="font-semibold text-slate-700 text-sm mt-0.5 truncate">
-                      {e.cliente || e.summary}
-                    </p>
-                    <p className="text-slate-400 text-xs truncate">
-                      {e.cliente && e.summary}
-                      {e.documento && ` · Doc: ${e.documento}`}
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
+    <div className="min-h-screen">
+      <CabecalhoGestao titulo="Localização das peças">
+        {rel && linhas.length > 0 && (
+          <button
+            onClick={() => window.print()}
+            className="h-11 px-4 rounded-xl bg-white text-marca text-base font-bold flex items-center gap-2 hover:bg-marca-50"
+          >
+            <Icone nome="imprimir" className="w-5 h-5" />
+            Imprimir
+          </button>
         )}
+      </CabecalhoGestao>
 
-        {/* Passo 2: quadros do Epic selecionado */}
-        {epic && (
-          <div className="space-y-4">
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 py-5 lg:grid lg:grid-cols-[20rem_1fr] lg:gap-8 print:block print:p-0">
 
-            {/* Card do projeto */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono font-bold text-slate-800">{epic.key}</span>
-                <StatusBadge status={epic.status} />
-              </div>
-              <p className="font-semibold text-slate-700 text-sm mt-0.5">{epic.cliente || epic.summary}</p>
-              {(epic.cliente || epic.documento) && (
-                <p className="text-slate-400 text-xs">
-                  {epic.cliente && epic.summary}
-                  {epic.documento && ` · Doc: ${epic.documento}`}
-                </p>
-              )}
+        {/* ── Escolha das obras ──────────────────────────────────────────── */}
+        <aside className="nao-imprimir mb-6 lg:mb-0">
+          <div className="lg:sticky lg:top-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-xl font-bold">Obras</h2>
+              <span className="text-base text-tinta-suave num">
+                {sel.length ? `${sel.length} escolhida${sel.length > 1 ? 's' : ''}` : 'nenhuma escolhida'}
+              </span>
             </div>
 
-            {loadingQuadros && (
-              <p className="text-center text-slate-400 text-sm py-6">Carregando quadros…</p>
-            )}
-            {quadrosError && (
-              <p className="text-center text-red-600 text-sm py-4">Erro: {quadrosError}</p>
-            )}
+            {!listaAberta ? (
+              <button
+                onClick={() => setListaAberta(true)}
+                className="mt-3 w-full h-12 rounded-xl border-2 border-linha bg-white text-base font-bold lg:hidden"
+              >
+                Trocar as obras
+              </button>
+            ) : null}
 
-            {!loadingQuadros && !quadrosError && (
-              <>
-                {/* Filtros */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-semibold text-slate-700 text-sm">Filtros</h2>
-                    {temFiltro && (
-                      <button
-                        onClick={() => { setFTipo(''); setFModelo(''); setFLoc(''); setFStatus(''); }}
-                        className="text-slate-500 text-xs underline"
-                      >
-                        Limpar
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      ['Tipo', fTipo, setFTipo, tipos],
-                      ['Modelo', fModelo, setFModelo, modelos],
-                      ['Localização', fLoc, setFLoc, locs],
-                      ['Status', fStatus, setFStatus, statuses],
-                    ] as const).map(([label, value, setter, options]) => (
-                      <label key={label} className="text-xs text-slate-500">
-                        {label}
-                        <select
-                          value={value}
-                          onChange={(e) => setter(e.target.value)}
-                          className="mt-1 w-full border border-slate-300 rounded-xl px-2 py-2 text-sm bg-white
-                            focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        >
-                          <option value="">Todos</option>
-                          {options.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
+            <div className={`${listaAberta ? '' : 'hidden'} lg:block`}>
+              <input
+                type="search"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                placeholder="Buscar cliente ou pedido"
+                aria-label="Buscar cliente ou pedido"
+                className="mt-3 w-full h-12 rounded-xl border-2 border-linha bg-white px-3 text-base outline-none focus:border-marca-600"
+              />
+              <div className="mt-2 flex gap-2 text-base">
+                <button
+                  onClick={() => setSel(obrasFiltradas.slice(0, MAX_OBRAS).map((o) => o.key))}
+                  className="flex-1 h-11 rounded-xl border-2 border-linha bg-white font-bold"
+                >
+                  Marcar {busca ? 'as achadas' : 'todas'}
+                </button>
+                <button
+                  onClick={() => setSel([])}
+                  disabled={sel.length === 0}
+                  className="flex-1 h-11 rounded-xl border-2 border-linha bg-white font-bold disabled:opacity-40"
+                >
+                  Desmarcar
+                </button>
+              </div>
+
+              {carregandoObras && <p className="py-6 text-tinta-suave">Carregando obras…</p>}
+              {erroObras && <p className="py-4 text-red-800">Não foi possível carregar as obras. ({erroObras.slice(0, 120)})</p>}
+
+              <ul className="mt-3 max-h-[60vh] lg:max-h-[calc(100vh-15rem)] overflow-y-auto divide-y divide-linha border-y border-linha bg-white">
+                {obrasFiltradas.map((o) => {
+                  const dias = o.duedate ? diasEntre(hoje, o.duedate) : null;
+                  return (
+                    <li key={o.key}>
+                      <label className="flex items-start gap-3 px-3 py-3 cursor-pointer hover:bg-marca-50">
+                        <input
+                          type="checkbox"
+                          checked={sel.includes(o.key)}
+                          onChange={() => alternar(o.key)}
+                          className="mt-1 w-6 h-6 shrink-0 accent-marca"
+                        />
+                        <span className="min-w-0">
+                          <span className="block font-bold leading-snug">{nomeObra(o)}</span>
+                          <span className="block text-sm text-tinta-suave">
+                            {o.documento && <>Pedido {o.documento} · </>}
+                            {o.duedate
+                              ? <span className={dias !== null && dias < 0 ? 'text-red-800 font-bold' : ''}>
+                                  entrega {dataCurta(o.duedate)}{dias !== null && dias < 0 ? ' (atrasada)' : ''}
+                                </span>
+                              : 'sem data de entrega'}
+                          </span>
+                        </span>
                       </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Tabela de quadros */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100">
-                    <h2 className="font-semibold text-slate-700 text-sm">
-                      {quadrosFiltrados.length} de {quadros.length} quadros
-                    </h2>
-                  </div>
-                  {quadros.length === 0 ? (
-                    <p className="text-center text-slate-400 text-sm py-6">Projeto sem quadros.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
-                            <th className="px-4 py-2 font-medium">Quadro</th>
-                            <th className="px-2 py-2 font-medium">Modelo</th>
-                            <th className="px-2 py-2 font-medium">Tipo</th>
-                            <th className="px-2 py-2 font-medium">Localização</th>
-                            <th className="px-4 py-2 font-medium text-right">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {quadrosFiltrados.map((q) => (
-                            <tr key={q.key}>
-                              <td className="px-4 py-2 font-mono font-semibold text-slate-800 whitespace-nowrap">{q.key}</td>
-                              <td className="px-2 py-2 text-slate-600">{q.modelo || '—'}</td>
-                              <td className="px-2 py-2 text-slate-600">{q.tipo || '—'}</td>
-                              <td className="px-2 py-2 font-medium text-slate-700">{q.localizacao || '—'}</td>
-                              <td className="px-4 py-2 text-right"><StatusBadge status={q.status} /></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+                    </li>
+                  );
+                })}
+                {!carregandoObras && obrasFiltradas.length === 0 && (
+                  <li className="px-3 py-6 text-tinta-suave">Nenhuma obra encontrada.</li>
+                )}
+              </ul>
+              {sel.length > 0 && (
+                <button
+                  onClick={() => setListaAberta(false)}
+                  className="mt-3 w-full h-12 rounded-xl bg-marca text-white font-bold lg:hidden"
+                >
+                  Ver o relatório
+                </button>
+              )}
+            </div>
           </div>
-        )}
-      </main>
+        </aside>
+
+        {/* ── Relatório ──────────────────────────────────────────────────── */}
+        <main className="min-w-0">
+          {sel.length === 0 && (
+            <div className="rounded-2xl border-2 border-dashed border-linha p-8 text-center text-lg text-tinta-suave nao-imprimir">
+              Escolha uma ou mais obras na lista para ver onde estão as peças.
+            </div>
+          )}
+
+          {sel.length > 0 && (
+            <>
+              {/* Controles (não vão para o papel) */}
+              <div className="nao-imprimir flex flex-wrap items-center gap-3 mb-5">
+                <div className="inline-flex rounded-xl border-2 border-marca overflow-hidden" role="group" aria-label="Organizar por">
+                  {(['obra', 'local'] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setVisao(v)}
+                      aria-pressed={visao === v}
+                      className={`h-11 px-4 text-base font-bold ${visao === v ? 'bg-marca text-white' : 'bg-white text-marca'}`}
+                    >
+                      {v === 'obra' ? 'Por obra' : 'Por local'}
+                    </button>
+                  ))}
+                </div>
+                <div className="inline-flex rounded-xl border-2 border-linha overflow-hidden" role="group" aria-label="Quais peças">
+                  {(['fabrica', 'todas'] as const).map((v) => (
+                    <button
+                      key={v}
+                      onClick={() => setMostrar(v)}
+                      aria-pressed={mostrar === v}
+                      className={`h-11 px-4 text-base font-bold ${mostrar === v ? 'bg-marca-100 text-marca' : 'bg-white text-tinta-suave'}`}
+                    >
+                      {v === 'fabrica' ? 'Ainda na fábrica' : 'Todas, até expedidas'}
+                    </button>
+                  ))}
+                </div>
+                {carregando && <span className="text-base text-tinta-suave">Buscando as peças…</span>}
+              </div>
+
+              {erro && (
+                <p className="nao-imprimir rounded-xl bg-red-50 border-2 border-red-300 p-4 text-red-900">
+                  Não foi possível buscar as peças. Tente de novo. <span className="text-sm">({erro.slice(0, 160)})</span>
+                </p>
+              )}
+
+              {rel && (
+                <>
+                  {/* Cabeçalho do relatório — na tela e no papel */}
+                  <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2 border-b-[3px] border-marca pb-3 mb-5">
+                    <div className="flex items-center gap-4">
+                      <Logo className="h-8 w-auto text-marca hidden print:block" />
+                      <div>
+                        <p className="text-2xl font-bold leading-tight">
+                          Localização das peças · {visao === 'obra' ? 'por obra' : 'por local'}
+                        </p>
+                        <p className="text-base text-tinta-suave">
+                          {mostrar === 'fabrica' ? 'Peças ainda na fábrica' : 'Todas as peças, inclusive expedidas'}
+                          {' · '}emitido em {emitido}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-base num">
+                      <b>{rel.obras.length}</b> {rel.obras.length === 1 ? 'obra' : 'obras'} ·{' '}
+                      <b>{linhas.length}</b> peças
+                      {semLocal > 0 && <> · <b className="text-red-800">{semLocal} sem local</b></>}
+                    </p>
+                  </div>
+
+                  {linhas.length === 0 && (
+                    <p className="text-lg text-tinta-suave py-6">
+                      {mostrar === 'fabrica'
+                        ? 'Nenhuma peça na fábrica: tudo o que foi escolhido já foi expedido.'
+                        : 'Essas obras ainda não têm peças cadastradas.'}
+                    </p>
+                  )}
+
+                  {visao === 'obra'
+                    ? <PorObra obras={rel.obras} visivel={visivel} hoje={hoje} />
+                    : <PorLocal linhas={linhas} />}
+                </>
+              )}
+            </>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// ─── Peças visuais ───────────────────────────────────────────────────────────
+
+const TH = 'text-left font-bold text-sm uppercase tracking-wide text-tinta-suave px-2 py-2 print:text-[8.5pt] print:text-black';
+const TD = 'px-2 py-2.5 align-top print:py-1.5';
+/** Colunas que somem na tela do celular (o papel e a tela grande mostram tudo) */
+const SO_GRANDE = 'hidden md:table-cell print:table-cell';
+
+function Local({ loc }: { loc: string }) {
+  return loc
+    ? <span className="inline-block rounded-md bg-cyan-800 text-white px-2 font-bold num print:bg-transparent print:text-black print:p-0 print:text-[11pt]">{loc}</span>
+    : <span className="italic text-red-800 print:text-black">sem local</span>;
+}
+
+function Situacao({ status }: { status: string }) {
+  return (
+    <span className={`inline-block rounded-md px-2 font-bold whitespace-nowrap print:bg-transparent print:p-0 print:font-normal ${statusSelo(status)}`}>
+      {statusLabel(status)}
+    </span>
+  );
+}
+
+/** Quadradinho para o conferente marcar à caneta */
+function Conferir() {
+  return <span className="inline-block w-5 h-5 border-2 border-tinta rounded-sm align-middle" aria-hidden />;
+}
+
+function Medidas({ p }: { p: PecaLoc }) {
+  if (!p.largura && !p.altura) return <span className="text-tinta-suave">—</span>;
+  return <span className="num whitespace-nowrap">{mm(p.largura)} × {mm(p.altura)}</span>;
+}
+
+function PorObra({
+  obras, visivel, hoje,
+}: { obras: ObraLoc[]; visivel: (p: PecaLoc) => boolean; hoje: string }) {
+  let primeira = true;
+  return (
+    <div className="flex flex-col gap-10 print:gap-0">
+      {obras.map((o) => {
+        const caixilhos = o.caixilhos
+          .map((c) => ({ ...c, pecas: c.pecas.filter(visivel) }))
+          .filter((c) => c.pecas.length > 0);
+        if (caixilhos.length === 0) return null;
+        const total = caixilhos.reduce((s, c) => s + c.pecas.length, 0);
+        const semLoc = caixilhos.reduce((s, c) => s + c.pecas.filter((p) => !p.loc).length, 0);
+        const dias = o.duedate ? diasEntre(hoje, o.duedate) : null;
+        const quebra = primeira ? '' : 'nova-pagina';
+        primeira = false;
+        return (
+          <section key={o.key} className={quebra} aria-label={nomeObra(o)}>
+            <div className="manter-junto mb-2">
+              <h2 className="text-2xl font-bold leading-tight print:text-[14pt]">{nomeObra(o)}</h2>
+              <p className="text-base text-tinta-suave print:text-black">
+                {o.documento && <>Pedido <b className="text-tinta">{o.documento}</b> · </>}
+                {o.duedate
+                  ? <>Entrega <b className="text-tinta">{dataLonga(o.duedate)}</b>
+                      {dias !== null && <span className={dias < 0 ? 'text-red-800 font-bold' : ''}> ({prazoRelativo(dias)})</span>}</>
+                  : 'Sem data de entrega'}
+                {' · '}{statusLabel(o.status)}
+                {' · '}{total} peças{semLoc > 0 && <>, <b className="text-red-800 print:text-black">{semLoc} sem local</b></>}
+              </p>
+            </div>
+            <div className="overflow-x-auto print:overflow-visible">
+              <table className="w-full md:min-w-[40rem] text-base border-collapse print:text-[10pt]">
+                <thead>
+                  <tr className="border-b-2 border-tinta">
+                    <th className={TH}>Caixilho</th>
+                    <th className={TH}>Peça</th>
+                    <th className={TH}>Local</th>
+                    <th className={`${TH} text-right`}>Medidas (mm)</th>
+                    <th className={`${TH} ${SO_GRANDE}`}>Cor</th>
+                    <th className={TH}>Situação</th>
+                    <th className={`${TH} text-center ${SO_GRANDE}`}>Conf.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {caixilhos.map((c) =>
+                    c.pecas.map((p, i) => (
+                      <tr key={p.key} className={i === 0 ? 'border-t-2 border-slate-400' : 'border-t border-linha'}>
+                        <td className={`${TD} font-bold whitespace-nowrap`}>{i === 0 ? (c.tipo || c.key) : ''}</td>
+                        <td className={TD}>
+                          <span className="font-bold">{p.modelo || 'Peça'}</span>
+                          <span className="block text-sm text-tinta-suave whitespace-nowrap print:text-[8pt] print:text-black">{p.key}</span>
+                        </td>
+                        <td className={TD}><Local loc={p.loc} /></td>
+                        <td className={`${TD} text-right`}><Medidas p={p} /></td>
+                        <td className={`${TD} text-sm print:text-[8.5pt] ${SO_GRANDE}`}>{legivel(p.cor || c.cor)}</td>
+                        <td className={TD}><Situacao status={p.status} /></td>
+                        <td className={`${TD} text-center ${SO_GRANDE}`}><Conferir /></td>
+                      </tr>
+                    )),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function PorLocal({ linhas }: { linhas: Linha[] }) {
+  const grupos = new Map<string, Linha[]>();
+  for (const l of linhas) grupos.set(l.peca.loc, [...(grupos.get(l.peca.loc) ?? []), l]);
+  // Locais em ordem (C01, C02… D01…); "sem local" no fim, para não sumir
+  const locais = [...grupos.keys()].sort((a, b) => (!a ? 1 : !b ? -1 : naturais(a, b)));
+
+  return (
+    <div className="flex flex-col gap-8">
+      {locais.map((loc) => {
+        const itens = grupos.get(loc)!.sort((a, b) =>
+          naturais(nomeObra(a.obra), nomeObra(b.obra)) || naturais(a.caixilho, b.caixilho) || naturais(a.peca.key, b.peca.key),
+        );
+        return (
+          <section key={loc || '(sem local)'} aria-label={loc || 'Sem local'}>
+            <h2 className="manter-junto flex items-baseline gap-3 mb-2">
+              {loc
+                ? <span className="rounded-lg bg-cyan-800 text-white px-3 text-2xl font-bold num print:bg-transparent print:text-black print:px-0 print:text-[15pt]">{loc}</span>
+                : <span className="text-2xl font-bold text-red-800 print:text-black">Sem local</span>}
+              <span className="text-lg text-tinta-suave print:text-black">{itens.length} {itens.length === 1 ? 'peça' : 'peças'}</span>
+            </h2>
+            <div className="overflow-x-auto print:overflow-visible">
+              <table className="w-full md:min-w-[40rem] text-base border-collapse print:text-[10pt]">
+                <thead>
+                  <tr className="border-b-2 border-tinta">
+                    <th className={TH}>Obra</th>
+                    <th className={TH}>Caixilho</th>
+                    <th className={TH}>Peça</th>
+                    <th className={`${TH} text-right`}>Medidas (mm)</th>
+                    <th className={`${TH} ${SO_GRANDE}`}>Cor</th>
+                    <th className={TH}>Situação</th>
+                    <th className={`${TH} text-center ${SO_GRANDE}`}>Conf.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itens.map((l) => (
+                    <tr key={l.peca.key} className="border-t border-linha">
+                      <td className={TD}>
+                        <span className="font-bold leading-snug">{nomeObra(l.obra)}</span>
+                        {l.obra.documento && <span className="block text-sm text-tinta-suave print:text-[8pt] print:text-black">{l.obra.documento}</span>}
+                      </td>
+                      <td className={`${TD} font-bold whitespace-nowrap`}>{l.caixilho}</td>
+                      <td className={TD}>
+                        <span className="font-bold">{l.peca.modelo || 'Peça'}</span>
+                        <span className="block text-sm text-tinta-suave whitespace-nowrap print:text-[8pt] print:text-black">{l.peca.key}</span>
+                      </td>
+                      <td className={`${TD} text-right`}><Medidas p={l.peca} /></td>
+                      <td className={`${TD} text-sm print:text-[8.5pt] ${SO_GRANDE}`}>{legivel(l.peca.cor)}</td>
+                      <td className={TD}><Situacao status={l.peca.status} /></td>
+                      <td className={`${TD} text-center ${SO_GRANDE}`}><Conferir /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
 }
