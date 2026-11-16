@@ -1,18 +1,18 @@
 'use client';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { STATUS_ORDER, canonicalStatus } from '@/lib/status';
+import Link from 'next/link';
+import { STATUS_ORDER, canonicalStatus, statusLabel, statusSelo } from '@/lib/status';
+import Logo from '@/components/Logo';
+import Icone from '@/components/Icone';
+import { legivel, mm } from '@/lib/formato';
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
+/** Prefixo das etiquetas: a pessoa digita só o número */
+const PREFIXO = 'PROJ-';
 
-interface SearchResult {
-  key: string;
-  summary: string;
-  status: string;
-  parent: string;
-}
+// ─── Tipos ───────────────────────────────────────────────────────────────────
 
 interface IssueDetail {
   key: string;
@@ -25,6 +25,8 @@ interface IssueDetail {
   largura: string;
   altura: string;
   modelo: string;
+  cor: string;
+  codigo: string;
   localizacao: string;
   localizacaoFieldId: string | null;
   localizacaoOptions: Array<{ id: string; value: string }>;
@@ -36,7 +38,7 @@ interface Transition {
   toStatus: string;
 }
 
-/** Resposta de /api/issue/[key]/irmaos: a issue lida e as irmãs da mesma Task */
+/** /api/issue/[key]/irmaos: a peça lida e as outras do mesmo caixilho */
 interface Irmaos {
   task: string | null;
   subtasks: Array<{ key: string; summary: string; status: string; modelo: string; localizacao: string }>;
@@ -51,123 +53,199 @@ interface ResultadoLote {
   motivo?: string;
 }
 
-// ─── Helpers de status ────────────────────────────────────────────────────────
+interface Cascata { key: string; status: string; nivel?: 'task' | 'epic' }
 
-const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  'Tarefas Pendentes': { bg: 'bg-slate-100',  text: 'text-slate-700',  border: 'border-slate-300' },
-  'Em Andamento':      { bg: 'bg-amber-100',  text: 'text-amber-700',  border: 'border-amber-400' },
-  'Concluido':         { bg: 'bg-emerald-100',text: 'text-emerald-700',border: 'border-emerald-400' },
-  'Expedido':          { bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-400'   },
-};
-
-const STATUS_ACTIVE: Record<string, string> = {
-  'Tarefas Pendentes': 'bg-slate-500  text-white border-slate-500',
-  'Em Andamento':      'bg-amber-500  text-white border-amber-500',
-  'Concluido':         'bg-emerald-500 text-white border-emerald-500',
-  'Expedido':          'bg-blue-600   text-white border-blue-600',
-};
-
-const STATUSES: readonly string[] = STATUS_ORDER;
-
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLES[status] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300' };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${s.bg} ${s.text} ${s.border}`}>
-      {status}
-    </span>
-  );
+/** Mensagem que fica na tela até a pessoa tocar em OK ou fazer outra coisa */
+interface Aviso {
+  tipo: 'ok' | 'erro';
+  titulo: string;
+  linhas?: string[];
+  /** Texto do erro original — escondido, para quem for dar suporte */
+  tecnico?: string;
 }
+
+type Fase = 'inicio' | 'digitar' | 'carregando' | 'peca';
+
+// ─── Sinais para quem não está olhando a tela ────────────────────────────────
+
+let audio: AudioContext | null = null;
+
+/** O iPhone só toca som depois de um toque da pessoa: prepara no primeiro */
+function prepararSom() {
+  try {
+    const C = window.AudioContext
+      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!C) return;
+    audio ??= new C();
+    if (audio.state === 'suspended') audio.resume().catch(() => {});
+  } catch { /* sem áudio: segue só com vibração */ }
+}
+
+/** Bip curto e agudo = deu certo · dois toques graves = deu errado */
+function sinal(ok: boolean) {
+  try { navigator.vibrate?.(ok ? 80 : [150, 90, 150]); } catch { /* sem vibração */ }
+  try {
+    prepararSom();
+    if (!audio) return;
+    const tocar = (inicio: number, freq: number, dur: number) => {
+      const o = audio!.createOscillator();
+      const g = audio!.createGain();
+      o.type = 'sine';
+      o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, inicio);
+      g.gain.exponentialRampToValueAtTime(0.3, inicio + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.0001, inicio + dur);
+      o.connect(g);
+      g.connect(audio!.destination);
+      o.start(inicio);
+      o.stop(inicio + dur + 0.02);
+    };
+    const t = audio.currentTime;
+    if (ok) tocar(t, 1046, 0.15);
+    else { tocar(t, 220, 0.18); tocar(t + 0.24, 220, 0.18); }
+  } catch { /* sem áudio */ }
+}
+
+// ─── Textos ──────────────────────────────────────────────────────────────────
+
+/** Erro técnico → o que a pessoa entende e pode fazer */
+function erroLegivel(e: unknown, padrao: string): { titulo: string; tecnico: string } {
+  const t = e instanceof Error ? e.message : String(e);
+  if (/Failed to fetch|NetworkError|Load failed|network/i.test(t)) {
+    return { titulo: 'Sem conexão com a internet. Confira o Wi-Fi e tente de novo.', tecnico: t };
+  }
+  if (/404|does not exist|não existe|No issue/i.test(t)) {
+    return { titulo: 'Não achamos essa etiqueta. Confira o número e tente de novo.', tecnico: t };
+  }
+  if (/\b(401|403)\b/.test(t)) {
+    return { titulo: 'O sistema perdeu o acesso ao Jira. Avise o responsável.', tecnico: t };
+  }
+  return { titulo: padrao, tecnico: t };
+}
+
+/** Peça é feminino: "concluída", "expedida" */
+const TITULO_STATUS: Record<string, string> = {
+  'Tarefas Pendentes': 'Peça voltou para PENDENTE',
+  'Em Andamento':      'Peça EM PRODUÇÃO',
+  'Concluido':         'Peça CONCLUÍDA',
+  'Expedido':          'Peça EXPEDIDA',
+};
+
+/** Botão principal: a próxima etapa do processo */
+const PROXIMA: Record<string, { status: string; texto: string }> = {
+  'Tarefas Pendentes': { status: 'Em Andamento', texto: 'Começar a produção' },
+  'Em Andamento':      { status: 'Concluido',    texto: 'Marcar como concluída' },
+  'Concluido':         { status: 'Expedido',     texto: 'Marcar como expedida' },
+};
+
+const MOTIVO: Record<string, string> = {
+  'já estava': 'já estava assim',
+  'sem transição no workflow': 'essa mudança não é permitida para ela',
+};
+
+/**
+ * A subtask não tem os campos Cliente/Documento; o nome dela é
+ * "CLIENTE DOCUMENTO TIPO". Separa o que dá para separar.
+ */
+function obraDaPeca(i: IssueDetail): { obra: string; pedido: string } {
+  if (i.cliente) return { obra: i.cliente, pedido: i.documento };
+  let s = i.summary.trim();
+  if (i.tipo && s.toUpperCase().endsWith(i.tipo.toUpperCase())) s = s.slice(0, -i.tipo.length).trim();
+  const m = s.match(/^(.*?)\s+(\d[\d./-]{5,})$/);
+  return m ? { obra: m[1], pedido: m[2] } : { obra: s, pedido: i.documento };
+}
+
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
-export default function Home() {
-  const [tab, setTab]             = useState<'scan' | 'search'>('scan');
+export default function Leitura() {
+  const [fase, setFase] = useState<Fase>('inicio');
   const [showScanner, setShowScanner] = useState(false);
+  const [numero, setNumero] = useState('');
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching]     = useState(false);
-
-  const [issue, setIssue]             = useState<IssueDetail | null>(null);
+  const [issue, setIssue] = useState<IssueDetail | null>(null);
   const [transitions, setTransitions] = useState<Transition[]>([]);
-  const [loadingIssue, setLoadingIssue] = useState(false);
 
   const [updatingStatus, setUpdatingStatus] = useState(false);
-  const [updatingLoc, setUpdatingLoc]       = useState(false);
-  const [selectedLoc, setSelectedLoc]       = useState('');
-  const [toast, setToast]                   = useState('');
+  const [salvandoLoc, setSalvandoLoc] = useState<string | null>(null);
+  const [locTexto, setLocTexto] = useState('');
+  const [outras, setOutras] = useState(false);
+  const [aviso, setAviso] = useState<Aviso | null>(null);
 
-  // Aplicar a todas as subtasks da Task. Desmarca a cada leitura: ninguém
-  // deve alterar uma task inteira por ter esquecido a opção ligada.
-  const [irmaos, setIrmaos]                 = useState<Irmaos | null>(null);
-  const [emLote, setEmLote]                 = useState(false);
-  const [naoMudaram, setNaoMudaram]         = useState<ResultadoLote[]>([]);
+  // Aplicar a todas as peças do caixilho. Desliga a cada leitura: ninguém
+  // deve alterar um caixilho inteiro por ter esquecido a opção ligada.
+  const [irmaos, setIrmaos] = useState<Irmaos | null>(null);
+  const [emLote, setEmLote] = useState(false);
+  const [naoMudaram, setNaoMudaram] = useState<ResultadoLote[]>([]);
 
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const avisoRef = useRef<HTMLDivElement>(null);
 
-  // ── Toast ──────────────────────────────────────────────────────────────────
-  const showToast = (msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 2500);
-  };
+  const avisar = useCallback((a: Aviso) => {
+    setAviso(a);
+    sinal(a.tipo === 'ok');
+  }, []);
 
-  // ── Carrega issue ──────────────────────────────────────────────────────────
+  // Leva o foco para o aviso: leitor de tela anuncia, e a página rola até ele
+  useEffect(() => {
+    if (aviso) avisoRef.current?.focus();
+  }, [aviso]);
+
+  // ── Carrega a peça ─────────────────────────────────────────────────────────
   const loadIssue = useCallback(async (key: string) => {
     const k = key.trim().toUpperCase();
     if (!k) return;
-    setLoadingIssue(true);
+    setFase('carregando');
+    setAviso(null);
     setIssue(null);
     setTransitions([]);
     setIrmaos(null);
     setEmLote(false);
     setNaoMudaram([]);
+    setOutras(false);
     try {
       const [issueRes, transRes, irmaosRes] = await Promise.all([
         fetch(`/api/issue/${k}`).then((r) => r.json()),
         fetch(`/api/issue/${k}/transitions`).then((r) => r.json()),
-        // Opcional: se falhar, a leitura segue normal, só sem a opção de lote
+        // Opcional: se falhar, a leitura segue, só sem a opção de caixilho inteiro
         fetch(`/api/issue/${k}/irmaos`).then((r) => r.json()).catch(() => null),
       ]);
       if (issueRes.error) throw new Error(issueRes.error);
       setIssue(issueRes);
-      setSelectedLoc(issueRes.localizacao ?? '');
+      setLocTexto(issueRes.localizacao ?? '');
       setTransitions(Array.isArray(transRes) ? transRes : []);
       setIrmaos(irmaosRes && !irmaosRes.error ? irmaosRes : null);
+      setFase('peca');
+      window.scrollTo({ top: 0 });
     } catch (e) {
-      showToast(`Erro: ${e}`);
-    } finally {
-      setLoadingIssue(false);
+      setFase('inicio');
+      avisar({ tipo: 'erro', ...erroLegivel(e, `Não foi possível abrir a etiqueta ${k}. Tente de novo.`) });
     }
-  }, []);
+  }, [avisar]);
 
-  // ── QR scan ────────────────────────────────────────────────────────────────
+  // ── Leitura do QR ──────────────────────────────────────────────────────────
   const handleScan = useCallback((text: string) => {
     setShowScanner(false);
-    // O QR contém o ID da subtask (ex: PROJ-123)
+    sinal(true);
+    // O QR contém a chave da peça (ex.: PROJ-123)
     const match = text.match(/([A-Z]+-\d+)/i);
-    const key = match ? match[1].toUpperCase() : text.trim();
-    loadIssue(key);
+    loadIssue(match ? match[1].toUpperCase() : text.trim());
   }, [loadIssue]);
 
-  // ── Busca manual ────────────────────────────────────────────────────────────
-  const handleSearchChange = (v: string) => {
-    setSearchQuery(v);
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!v.trim()) { setSearchResults([]); return; }
-    searchTimer.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(v)}`);
-        const data = await res.json();
-        setSearchResults(Array.isArray(data) ? data : []);
-      } finally {
-        setSearching(false);
-      }
-    }, 500);
+  const abrirLeitor = () => {
+    prepararSom();
+    setAviso(null);
+    setShowScanner(true);
   };
 
-  // ── Lote: todas as subtasks da Task ────────────────────────────────────────
-  // Só existe para subtask de uma Task com mais de uma subtask
+  const abrirDigitar = () => {
+    setShowScanner(false);
+    setAviso(null);
+    setNumero('');
+    setFase('digitar');
+  };
+
+  // ── Lote: todas as peças do caixilho ───────────────────────────────────────
+  // Só existe para peça de um caixilho com mais de uma peça
   const lote = irmaos?.task && irmaos.subtasks.length > 1 ? irmaos : null;
   const emLoteAtivo = emLote && lote !== null;
 
@@ -180,7 +258,7 @@ export default function Home() {
 
   const postLote = async (key: string, body: object): Promise<{
     resultados: ResultadoLote[];
-    updated: Array<{ key: string; status: string }>;
+    updated: Cascata[];
   }> => {
     const res = await fetch(`/api/issue/${key}/lote`, {
       method: 'POST',
@@ -192,35 +270,48 @@ export default function Home() {
     return { resultados: data.resultados ?? [], updated: data.updated ?? [] };
   };
 
-  // ── Atualiza status ─────────────────────────────────────────────────────────
+  /** "O caixilho também ficou Concluído", "A obra também ficou…" */
+  const linhasCascata = (cascata: Cascata[]) =>
+    cascata.map((u) =>
+      u.nivel === 'epic'
+        ? `A obra também ficou ${statusLabel(u.status)}.`
+        : `O caixilho ${issue?.tipo ?? ''} também ficou ${statusLabel(u.status)}.`.replace('  ', ' '),
+    );
+
+  // ── Muda a situação ────────────────────────────────────────────────────────
   const handleStatusChange = async (statusName: string) => {
     if (!issue || updatingStatus) return;
     const tr = transitions.find(
-      (t) => t.toStatus.toLowerCase() === statusName.toLowerCase(),
+      (t) => canonicalStatus(t.toStatus) === canonicalStatus(statusName),
     );
-    // Em lote, a lida já no status escolhido não precisa de transição: o
-    // clique ainda serve para levar as irmãs até ele
+    // Em lote, a peça lida já no status escolhido não precisa de transição:
+    // o toque ainda serve para levar as outras até ele
     const jaNoStatus = canonicalStatus(issue.status) === canonicalStatus(statusName);
     if (!tr && !(emLoteAtivo && jaNoStatus)) {
-      showToast(`Transição "${statusName}" não disponível`);
+      avisar({ tipo: 'erro', titulo: `Essa peça não pode ir para ${statusLabel(statusName)} agora.` });
       return;
     }
 
     setUpdatingStatus(true);
     setNaoMudaram([]);
+    setAviso(null);
     const prev = issue.status;
-    setIssue((i) => i ? { ...i, status: statusName } : i);   // optimistic
+    setIssue((i) => i ? { ...i, status: statusName } : i);   // otimista
 
     try {
-      let cascata: Array<{ key: string; status: string }>;
-      let resumo = `Status → ${statusName}`;
+      let cascata: Cascata[];
+      let titulo = TITULO_STATUS[canonicalStatus(statusName)] ?? `Peça: ${statusLabel(statusName)}`;
+      const linhas: string[] = [];
       if (emLoteAtivo) {
         const { resultados, updated } = await postLote(issue.key, {
           acao: 'status', transitionId: tr?.id, status: statusName,
         });
         cascata = updated;
-        resumo = `${resultados.filter((r) => r.ok).length}/${resultados.length} subtasks → ${statusName}`;
-        setNaoMudaram(resultados.filter((r) => !r.ok));
+        const ok = resultados.filter((r) => r.ok).length;
+        titulo = `${ok} de ${resultados.length} peças agora em ${statusLabel(statusName).toUpperCase()}`;
+        const falhas = resultados.filter((r) => !r.ok);
+        setNaoMudaram(falhas);
+        if (falhas.length) linhas.push(`${falhas.length} não mudaram — veja abaixo.`);
         recarregarIrmaos(issue.key);
       } else {
         const res = await fetch(`/api/issue/${issue.key}/transitions`, {
@@ -232,377 +323,474 @@ export default function Home() {
         if (data.error) throw new Error(data.error);
         cascata = data.updated ?? [];
       }
-      showToast(
-        cascata.length > 0
-          ? `${resumo} · ${cascata.map((u) => `${u.key} → ${u.status}`).join(' · ')}`
-          : resumo,
-      );
-      // Recarrega transições disponíveis
+      setOutras(false);
+      avisar({ tipo: 'ok', titulo, linhas: [...linhas, ...linhasCascata(cascata)] });
+      // Recarrega as transições possíveis a partir do novo status
       fetch(`/api/issue/${issue.key}/transitions`)
         .then((r) => r.json())
         .then((d) => { if (Array.isArray(d)) setTransitions(d); });
     } catch (e) {
       setIssue((i) => i ? { ...i, status: prev } : i);
-      showToast(`Erro: ${e}`);
+      avisar({ tipo: 'erro', ...erroLegivel(e, 'Não deu para mudar a situação. Tente de novo.') });
     } finally {
       setUpdatingStatus(false);
     }
   };
 
-  // ── Atualiza Localização ────────────────────────────────────────────────────
-  const handleLocalizacaoSave = async () => {
-    if (!issue || !issue.localizacaoFieldId || updatingLoc) return;
-    setUpdatingLoc(true);
+  // ── Muda o local ───────────────────────────────────────────────────────────
+  const salvarLocal = async (valor: string) => {
+    if (!issue || !issue.localizacaoFieldId || salvandoLoc || !valor) return;
+    setSalvandoLoc(valor);
     setNaoMudaram([]);
+    setAviso(null);
     try {
       if (emLoteAtivo) {
         const { resultados } = await postLote(issue.key, {
-          acao: 'localizacao', fieldId: issue.localizacaoFieldId, value: selectedLoc,
+          acao: 'localizacao', fieldId: issue.localizacaoFieldId, value: valor,
         });
         setNaoMudaram(resultados.filter((r) => !r.ok));
         if (resultados.some((r) => r.key === issue.key && r.ok)) {
-          setIssue((i) => i ? { ...i, localizacao: selectedLoc } : i);
+          setIssue((i) => i ? { ...i, localizacao: valor } : i);
         }
-        showToast(`${resultados.filter((r) => r.ok).length}/${resultados.length} subtasks → ${selectedLoc}`);
+        const ok = resultados.filter((r) => r.ok).length;
+        const falhas = resultados.length - ok;
+        avisar({
+          tipo: 'ok',
+          titulo: `${ok} de ${resultados.length} peças agora no local ${valor}`,
+          linhas: falhas ? [`${falhas} não mudaram — veja abaixo.`] : [],
+        });
         recarregarIrmaos(issue.key);
         return;
       }
       const res = await fetch(`/api/issue/${issue.key}/localizacao`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fieldId: issue.localizacaoFieldId, value: selectedLoc }),
+        body: JSON.stringify({ fieldId: issue.localizacaoFieldId, value: valor }),
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      setIssue((i) => i ? { ...i, localizacao: selectedLoc } : i);
-      showToast('Localização atualizada');
+      setIssue((i) => i ? { ...i, localizacao: valor } : i);
+      avisar({ tipo: 'ok', titulo: `Local salvo: ${valor}` });
     } catch (e) {
-      showToast(`Erro: ${e}`);
+      avisar({ tipo: 'erro', ...erroLegivel(e, 'Não deu para salvar o local. Tente de novo.') });
     } finally {
-      setUpdatingLoc(false);
+      setSalvandoLoc(null);
     }
   };
 
-  // ── Limpar tela ─────────────────────────────────────────────────────────────
-  const handleClear = () => {
-    setIssue(null);
-    setTransitions([]);
-    setIrmaos(null);
-    setEmLote(false);
-    setNaoMudaram([]);
-    setSearchQuery('');
-    setSearchResults([]);
-  };
+  // ── Render ─────────────────────────────────────────────────────────────────
+  const atual = issue ? canonicalStatus(issue.status) : '';
+  const disponivel = (s: string) => transitions.some((t) => canonicalStatus(t.toStatus) === s);
+  const proxima = issue && PROXIMA[atual] && disponivel(PROXIMA[atual].status) ? PROXIMA[atual] : null;
+  const outrasOpcoes = STATUS_ORDER.filter((s) =>
+    s !== proxima?.status && (s === atual ? emLoteAtivo : disponivel(s)),
+  );
+  const obra = issue ? obraDaPeca(issue) : null;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="max-w-lg mx-auto min-h-screen flex flex-col">
+    <div className="min-h-screen flex flex-col">
 
-      {/* Header */}
-      <header className="bg-slate-800 text-white px-4 py-4 flex items-center justify-between sticky top-0 z-10 shadow">
-        <div>
-          <h1 className="font-bold text-lg leading-tight">Shine Windows</h1>
-          <p className="text-slate-400 text-xs">Controle de Produção</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-          {issue ? (
-            <button onClick={handleClear} className="text-slate-300 text-sm underline">
-              Nova leitura
-            </button>
-          ) : (
-            <>
-              <a href="/quadros" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📦 Quadros
-              </a>
-              {/* Tela da TV: alterna entre resumo e expedição sozinha */}
-              <a href="/painel" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📺 Painel
-              </a>
-              <a href="/expedicao" className="text-slate-300 text-xs underline whitespace-nowrap">
-                🚚 Expedição
-              </a>
-              <a href="/resumo" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📊 Resumo
-              </a>
-            </>
-          )}
+      {/* Barra da marca */}
+      <header className="bg-marca text-white">
+        <div className="mx-auto max-w-2xl px-4 h-16 flex items-center gap-3">
+          <Logo className="h-7 w-auto" />
+          <span className="text-lg text-marca-200">Produção</span>
         </div>
       </header>
 
-      <main className="flex-1 p-4 space-y-4">
-
-        {/* Tabs (apenas quando não há issue carregada) */}
-        {!issue && !loadingIssue && (
-          <>
-            <div className="flex rounded-xl overflow-hidden border border-slate-300 bg-white">
-              {(['scan', 'search'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`flex-1 py-3 text-sm font-medium transition-colors ${
-                    tab === t ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {t === 'scan' ? '📷  Escanear QR' : '🔍  Buscar'}
-                </button>
+      {/* Aviso: fica até tocar em OK ou fazer outra coisa */}
+      {aviso && (
+        <div className="sticky top-0 z-30 px-3 pt-3">
+          <div
+            ref={avisoRef}
+            tabIndex={-1}
+            role={aviso.tipo === 'erro' ? 'alert' : 'status'}
+            className={`mx-auto max-w-2xl rounded-2xl shadow-lg outline-none flex items-start gap-3 p-4 ${
+              aviso.tipo === 'ok' ? 'bg-emerald-700 text-white' : 'bg-red-700 text-white'
+            }`}
+          >
+            <Icone nome={aviso.tipo === 'ok' ? 'check' : 'alerta'} className="w-9 h-9 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-2xl font-bold leading-snug">{aviso.titulo}</p>
+              {aviso.linhas?.map((l) => (
+                <p key={l} className="text-lg leading-snug mt-1">{l}</p>
               ))}
+              {aviso.tecnico && (
+                <details className="mt-2 text-sm opacity-90">
+                  <summary className="cursor-pointer">Detalhe para o suporte</summary>
+                  <p className="mt-1 break-words">{aviso.tecnico.slice(0, 300)}</p>
+                </details>
+              )}
             </div>
+            <button
+              onClick={() => setAviso(null)}
+              className="shrink-0 h-12 px-4 rounded-xl bg-white/20 text-xl font-bold active:bg-white/30"
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
 
-            {/* Aba Scan */}
-            {tab === 'scan' && (
-              <div className="bg-white rounded-2xl p-6 text-center shadow-sm border border-slate-200">
-                <div className="text-6xl mb-4">📷</div>
-                <p className="text-slate-600 text-sm mb-5">
-                  Aponte a câmera para o QR code da etiqueta do quadro.
-                </p>
-                <button
-                  onClick={() => setShowScanner(true)}
-                  className="w-full bg-slate-800 text-white py-4 rounded-xl font-semibold text-lg active:bg-slate-700 transition-colors"
-                >
-                  Iniciar Scanner
-                </button>
-              </div>
-            )}
+      <main className={`flex-1 w-full mx-auto max-w-2xl px-4 py-5 ${fase === 'peca' ? 'pb-32' : ''}`}>
 
-            {/* Aba Buscar */}
-            {tab === 'search' && (
-              <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-3">
-                <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-slate-400">
-                  <span className="px-3 py-3 bg-slate-100 text-slate-500 font-mono text-sm border-r border-slate-300 select-none whitespace-nowrap">
-                    PROJ-
-                  </span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="184"
-                    value={searchQuery.replace(/^PROJ-/i, '')}
-                    onChange={(e) => handleSearchChange(e.target.value ? `PROJ-${e.target.value}` : '')}
-                    className="flex-1 px-3 py-3 text-sm outline-none bg-white"
-                  />
-                </div>
-                {searching && (
-                  <p className="text-center text-slate-400 text-sm py-2">Buscando…</p>
-                )}
-                {searchResults.length > 0 && (
-                  <ul className="divide-y divide-slate-100">
-                    {searchResults.map((r) => (
-                      <li key={r.key}>
-                        <button
-                          onClick={() => { setSearchQuery(''); setSearchResults([]); loadIssue(r.key); }}
-                          className="w-full text-left px-2 py-3 hover:bg-slate-50 active:bg-slate-100 rounded-lg"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono font-bold text-slate-800 text-sm">{r.key}</span>
-                            <StatusBadge status={r.status} />
-                          </div>
-                          <p className="text-slate-500 text-xs mt-0.5 truncate">{r.summary}</p>
-                          {r.parent && <p className="text-slate-400 text-xs">Task: {r.parent}</p>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Loading */}
-        {loadingIssue && (
-          <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-slate-200">
-            <div className="text-4xl animate-spin mb-3">⏳</div>
-            <p className="text-slate-500 text-sm">Carregando quadro…</p>
+        {/* ── Início ─────────────────────────────────────────────────────── */}
+        {fase === 'inicio' && (
+          <div className="flex flex-col gap-4 min-h-[calc(100vh-8rem)]">
+            <button
+              onClick={abrirLeitor}
+              className="flex-1 min-h-[45vh] rounded-3xl bg-marca text-white flex flex-col items-center justify-center gap-4 px-6
+                active:bg-marca-800 shadow-[0_6px_0_0_#2b2363] active:shadow-none active:translate-y-1 transition-transform"
+            >
+              <Icone nome="camera" className="w-24 h-24" />
+              <span className="text-5xl font-bold">Ler etiqueta</span>
+              <span className="text-xl text-marca-200">Toque aqui e aponte a câmera para o código</span>
+            </button>
+            <button
+              onClick={abrirDigitar}
+              className="h-20 rounded-2xl border-[3px] border-marca bg-white text-marca text-2xl font-bold
+                flex items-center justify-center gap-3 active:bg-marca-50"
+            >
+              <Icone nome="numero" className="w-8 h-8" />
+              Digitar o número
+            </button>
+            <Link
+              href="/telas"
+              className="self-center mt-2 px-4 py-3 text-lg text-tinta-suave underline underline-offset-4"
+            >
+              Outras telas
+            </Link>
           </div>
         )}
 
-        {/* Painel do Issue */}
-        {issue && !loadingIssue && (
-          <div className="space-y-4">
-
-            {/* Card de identificação */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="bg-slate-800 px-4 py-3 flex items-center justify-between">
-                <span className="font-mono font-bold text-white text-lg">{issue.key}</span>
-                <StatusBadge status={issue.status} />
-              </div>
-              <div className="px-4 py-3 space-y-1 text-sm">
-                <p className="font-semibold text-slate-800">{issue.summary}</p>
-                {issue.parent && <p className="text-slate-500 text-xs">Task: {issue.parent}</p>}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-xs text-slate-600">
-                  {issue.cliente   && <span><span className="font-medium">Cliente:</span> {issue.cliente}</span>}
-                  {issue.documento && <span><span className="font-medium">Doc:</span> {issue.documento}</span>}
-                  {issue.tipo      && <span><span className="font-medium">Tipo:</span> {issue.tipo}</span>}
-                  {issue.modelo    && <span><span className="font-medium">Modelo:</span> {issue.modelo}</span>}
-                  {(issue.largura || issue.altura) && (
-                    <span className="col-span-2 font-semibold text-slate-700">
-                      📐 {issue.largura} × {issue.altura} mm
-                    </span>
-                  )}
-                </div>
-              </div>
+        {/* ── Digitar o número ───────────────────────────────────────────── */}
+        {fase === 'digitar' && (
+          <form
+            className="flex flex-col gap-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (numero) loadIssue(`${PREFIXO}${numero}`);
+            }}
+          >
+            <label htmlFor="numero" className="text-3xl font-bold">Número da etiqueta</label>
+            <p className="text-xl text-tinta-suave -mt-3">
+              É o número que vem depois de <b className="text-tinta">{PREFIXO}</b> na etiqueta.
+            </p>
+            <div className="flex items-center h-24 rounded-2xl border-[3px] border-marca bg-white overflow-hidden focus-within:ring-4 focus-within:ring-marca-200">
+              <span className="pl-5 pr-2 text-4xl font-bold text-tinta-suave select-none">{PREFIXO}</span>
+              <input
+                id="numero"
+                autoFocus
+                inputMode="numeric"
+                pattern="[0-9]*"
+                autoComplete="off"
+                value={numero}
+                onChange={(e) => setNumero(e.target.value.replace(/\D/g, ''))}
+                placeholder="1234"
+                className="flex-1 min-w-0 h-full pr-4 text-5xl font-bold num outline-none bg-transparent placeholder:text-slate-300"
+              />
             </div>
+            <button
+              type="submit"
+              disabled={!numero}
+              className="h-20 rounded-2xl bg-marca text-white text-2xl font-bold disabled:bg-slate-300 disabled:text-slate-600 active:bg-marca-800"
+            >
+              Abrir a peça
+            </button>
+            <button
+              type="button"
+              onClick={() => setFase('inicio')}
+              className="h-16 rounded-2xl border-2 border-linha bg-white text-xl font-bold flex items-center justify-center gap-2"
+            >
+              <Icone nome="voltar" className="w-6 h-6" />
+              Voltar
+            </button>
+          </form>
+        )}
 
-            {/* Aplicar a todas as subtasks da Task */}
+        {/* ── Carregando ─────────────────────────────────────────────────── */}
+        {fase === 'carregando' && (
+          <div className="py-24 flex flex-col items-center gap-6" role="status">
+            <span className="w-16 h-16 rounded-full border-[6px] border-marca-100 border-t-marca animate-spin" aria-hidden />
+            <p className="text-2xl font-bold">Abrindo a peça…</p>
+          </div>
+        )}
+
+        {/* ── Peça ───────────────────────────────────────────────────────── */}
+        {fase === 'peca' && issue && obra && (
+          <div className="flex flex-col gap-6">
+
+            {/* O que é esta peça — o que a pessoa compara com a peça na mão */}
+            <section aria-label="Peça lida" className="rounded-3xl bg-white border-2 border-linha p-5">
+              <p className="text-4xl font-bold leading-tight uppercase">
+                {issue.modelo || 'Peça'}
+                {issue.tipo && <span className="text-tinta-suave"> · {issue.tipo}</span>}
+              </p>
+              {(issue.largura || issue.altura) && (
+                <p className="mt-2 text-4xl font-bold num">
+                  {mm(issue.largura)} <span className="text-tinta-suave">×</span> {mm(issue.altura)}
+                  <span className="text-2xl text-tinta-suave font-normal"> mm</span>
+                </p>
+              )}
+              <dl className="mt-4 grid gap-2 text-xl">
+                <div>
+                  <dt className="sr-only">Obra</dt>
+                  <dd className="font-bold leading-snug">{obra.obra}</dd>
+                  {obra.pedido && <dd className="text-tinta-suave">Pedido {obra.pedido}</dd>}
+                </div>
+                {issue.cor && (
+                  <div className="flex gap-2">
+                    <dt className="text-tinta-suave">Cor</dt>
+                    <dd className="font-bold">{legivel(issue.cor)}</dd>
+                  </div>
+                )}
+              </dl>
+              <p className="mt-4 text-lg text-tinta-suave">
+                Etiqueta <span className="font-bold text-tinta">{issue.key}</span>
+              </p>
+            </section>
+
+            {/* Aplicar ao caixilho inteiro */}
             {lote && (
-              <div className={`bg-white rounded-2xl shadow-sm border-2 p-4 ${emLote ? 'border-amber-400' : 'border-slate-200'}`}>
-                <label className="flex items-start gap-3 cursor-pointer select-none">
+              <section
+                aria-label="Aplicar ao caixilho inteiro"
+                className={`rounded-3xl bg-white p-5 border-[3px] ${emLote ? 'border-amber-500 bg-amber-50' : 'border-linha'}`}
+              >
+                <label className="flex items-start gap-4 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={emLote}
                     onChange={(e) => { setEmLote(e.target.checked); setNaoMudaram([]); }}
-                    disabled={updatingStatus || updatingLoc}
-                    className="mt-0.5 w-5 h-5 shrink-0 accent-amber-500"
+                    disabled={updatingStatus || !!salvandoLoc}
+                    className="mt-1 w-8 h-8 shrink-0 accent-amber-600"
                   />
-                  <span className="text-sm text-slate-700">
-                    Aplicar a todas as <b>{lote.subtasks.length} subtasks</b> da task{' '}
-                    <span className="font-mono font-semibold">{lote.task}</span>
-                    <span className="block text-xs text-slate-500 mt-0.5">
-                      Status e localização valem para todas, para frente ou para trás.
+                  <span className="text-xl leading-snug">
+                    <b>Mudar todas as {lote.subtasks.length} peças do caixilho {issue.tipo}</b>
+                    <span className="block text-lg text-tinta-suave mt-1">
+                      A situação e o local que você escolher valem para todas.
                     </span>
                   </span>
                 </label>
 
-                {/* O que vai mudar — visível só com a opção ligada */}
                 {emLote && (
-                  <ul className="mt-3 divide-y divide-slate-100 border-t border-slate-100 text-xs">
+                  <ul className="mt-4 divide-y divide-amber-200 border-t-2 border-amber-200">
                     {lote.subtasks.map((s) => (
-                      <li key={s.key} className="flex items-center gap-2 py-1.5">
-                        <span className={`font-mono ${s.key === issue.key ? 'font-bold text-slate-800' : 'text-slate-600'}`}>
-                          {s.key}
+                      <li key={s.key} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 text-lg">
+                        <span className={`font-bold ${s.key === issue.key ? '' : 'text-tinta-suave'}`}>
+                          {s.modelo || s.key}
+                          {s.key === issue.key && <span className="font-normal"> (esta)</span>}
                         </span>
-                        {s.modelo && <span className="text-slate-500">{s.modelo}</span>}
                         <span className="ml-auto flex items-center gap-2">
-                          {s.localizacao && <span className="font-mono text-slate-500">{s.localizacao}</span>}
-                          <StatusBadge status={s.status} />
+                          {s.localizacao && <span className="rounded-lg bg-cyan-800 text-white px-2 font-bold">{s.localizacao}</span>}
+                          <span className={`rounded-lg px-2 font-bold ${statusSelo(s.status)}`}>{statusLabel(s.status)}</span>
                         </span>
                       </li>
                     ))}
                   </ul>
                 )}
 
-                {/* Irmãs que não mudaram na última ação em lote */}
                 {naoMudaram.length > 0 && (
-                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-300 px-3 py-2 text-xs text-amber-800">
-                    <p className="font-semibold mb-1">
-                      {naoMudaram.length} {naoMudaram.length === 1 ? 'subtask não mudou' : 'subtasks não mudaram'}
+                  <div className="mt-4 rounded-2xl bg-red-50 border-2 border-red-300 p-4 text-lg text-red-900">
+                    <p className="font-bold">
+                      {naoMudaram.length === 1 ? '1 peça não mudou' : `${naoMudaram.length} peças não mudaram`}
                     </p>
-                    <ul className="space-y-0.5">
+                    <ul className="mt-1 space-y-1">
                       {naoMudaram.map((r) => (
                         <li key={r.key}>
-                          <span className="font-mono">{r.key}</span> — {r.motivo ?? 'erro'}
+                          {lote.subtasks.find((s) => s.key === r.key)?.modelo ?? 'Peça'} ({r.key}):{' '}
+                          {MOTIVO[r.motivo ?? ''] ?? 'deu erro'}
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
-              </div>
+              </section>
             )}
 
-            {/* Alterar Status */}
-            <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
-              <h2 className="font-semibold text-slate-700 text-sm mb-3">
-                Alterar Status
-                {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
-              </h2>
-              <div className="grid grid-cols-2 gap-2">
-                {STATUSES.map((s) => {
-                  const isActive = issue.status === s;
-                  const isAvailable = transitions.some((t) => t.toStatus.toLowerCase() === s.toLowerCase());
-                  const style = STATUS_STYLES[s] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' };
-                  const activeStyle = STATUS_ACTIVE[s] ?? 'bg-gray-500 text-white border-gray-500';
+            {/* Situação */}
+            <section aria-labelledby="titulo-situacao" className="flex flex-col gap-3">
+              <h2 id="titulo-situacao" className="text-2xl font-bold">Situação</h2>
+              <p className={`rounded-2xl px-5 py-4 text-3xl font-bold ${statusSelo(issue.status)}`}>
+                {statusLabel(issue.status)}
+              </p>
 
-                  return (
-                    <button
-                      key={s}
-                      disabled={updatingStatus || (!isAvailable && !isActive)}
-                      onClick={() => handleStatusChange(s)}
-                      className={`py-3 px-2 rounded-xl border-2 text-sm font-medium transition-all
-                        ${isActive ? activeStyle : `${style.bg} ${style.text} ${style.border}`}
-                        ${!isAvailable && !isActive ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}
-                      `}
-                    >
-                      {isActive && '✓ '}{s}
-                    </button>
-                  );
-                })}
-              </div>
-              {updatingStatus && (
-                <p className="text-center text-slate-400 text-xs mt-2">Atualizando…</p>
-              )}
-            </div>
-
-            {/* Alterar Localização */}
-            {issue.localizacaoFieldId && (
-              <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
-                <h2 className="font-semibold text-slate-700 text-sm mb-3">
-                  Localização
-                  {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
-                </h2>
-                {issue.localizacaoOptions.length > 0 ? (
-                  <select
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
-                  >
-                    <option value="">— selecione —</option>
-                    {issue.localizacaoOptions.map((o) => (
-                      <option key={o.id} value={o.value}>{o.value}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    placeholder="Digite a localização"
-                    className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                  />
-                )}
+              {proxima && (
                 <button
-                  disabled={
-                    updatingLoc || (emLoteAtivo
-                      // Em lote a lida pode já estar certa e as irmãs não; vazio
-                      // em lote apagaria a localização da task inteira
-                      ? !selectedLoc || !!lote?.subtasks.every((s) => s.localizacao === selectedLoc)
-                      : selectedLoc === issue.localizacao)
-                  }
-                  onClick={handleLocalizacaoSave}
-                  className="mt-3 w-full bg-slate-800 text-white py-3 rounded-xl font-medium text-sm
-                    disabled:opacity-40 active:bg-slate-700 transition-colors"
+                  onClick={() => handleStatusChange(proxima.status)}
+                  disabled={updatingStatus}
+                  className="h-24 rounded-2xl bg-marca text-white text-3xl font-bold flex items-center justify-center gap-3
+                    disabled:opacity-60 active:bg-marca-800"
                 >
-                  {updatingLoc
-                    ? 'Salvando…'
-                    : emLoteAtivo ? `Salvar em ${lote?.subtasks.length} subtasks` : 'Salvar Localização'}
+                  {updatingStatus ? (
+                    <>
+                      <span className="w-8 h-8 rounded-full border-4 border-white/40 border-t-white animate-spin" aria-hidden />
+                      Salvando…
+                    </>
+                  ) : (
+                    <>
+                      <Icone nome="check" className="w-9 h-9" />
+                      {emLoteAtivo ? `${proxima.texto.replace('Marcar como', 'Marcar todas como')}` : proxima.texto}
+                    </>
+                  )}
                 </button>
-                {issue.localizacao && (
-                  <p className="text-slate-400 text-xs mt-1 text-center">
-                    Atual: <span className="font-medium text-slate-600">{issue.localizacao}</span>
-                  </p>
-                )}
-              </div>
-            )}
+              )}
+              {!proxima && atual === 'Expedido' && (
+                <p className="text-xl text-tinta-suave">Esta peça já foi expedida.</p>
+              )}
 
+              {outrasOpcoes.length > 0 && (
+                <>
+                  <button
+                    onClick={() => setOutras((v) => !v)}
+                    aria-expanded={outras}
+                    className="h-14 rounded-2xl border-2 border-linha bg-white text-xl font-bold"
+                  >
+                    {outras ? 'Fechar' : 'Escolher outra situação'}
+                  </button>
+                  {outras && (
+                    <div className="grid gap-3">
+                      {outrasOpcoes.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => handleStatusChange(s)}
+                          disabled={updatingStatus}
+                          className={`h-16 rounded-2xl text-2xl font-bold border-2 border-black/10 disabled:opacity-60 ${statusSelo(s)}`}
+                        >
+                          {s === atual ? `Deixar todas em ${statusLabel(s)}` : statusLabel(s)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </section>
+
+            {/* Local */}
+            {issue.localizacaoFieldId && (
+              <section aria-labelledby="titulo-local" className="flex flex-col gap-3">
+                <h2 id="titulo-local" className="text-2xl font-bold">
+                  Local {emLoteAtivo && <span className="text-amber-800 font-normal">· todas as peças</span>}
+                </h2>
+                <p className="text-xl">
+                  {issue.localizacao
+                    ? <>Agora em <span className="rounded-lg bg-cyan-800 text-white px-3 py-0.5 font-bold text-2xl">{issue.localizacao}</span></>
+                    : <span className="text-tinta-suave">Ainda sem local.</span>}
+                </p>
+                {issue.localizacaoOptions.length > 0 ? (
+                  <>
+                    <p className="text-lg text-tinta-suave">Toque no novo local para salvar.</p>
+                    <GradeLocais
+                      opcoes={issue.localizacaoOptions.map((o) => o.value)}
+                      atual={issue.localizacao}
+                      salvando={salvandoLoc}
+                      // Em lote, a lida pode já estar certa e as outras não
+                      jaTodas={(v) => !!lote?.subtasks.every((s) => s.localizacao === v)}
+                      emLote={emLoteAtivo}
+                      onEscolher={salvarLocal}
+                    />
+                  </>
+                ) : (
+                  <div className="flex gap-3">
+                    <input
+                      value={locTexto}
+                      onChange={(e) => setLocTexto(e.target.value)}
+                      placeholder="Digite o local"
+                      className="flex-1 min-w-0 h-16 rounded-2xl border-2 border-linha px-4 text-2xl bg-white"
+                    />
+                    <button
+                      onClick={() => salvarLocal(locTexto.trim())}
+                      disabled={!!salvandoLoc || !locTexto.trim() || locTexto.trim() === issue.localizacao}
+                      className="h-16 px-6 rounded-2xl bg-marca text-white text-xl font-bold disabled:opacity-40"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         )}
       </main>
 
-      {/* Scanner modal */}
+      {/* Próxima leitura sempre à mão, na zona do polegar */}
+      {fase === 'peca' && (
+        <div className="fixed bottom-0 inset-x-0 z-20 bg-fundo/95 backdrop-blur border-t-2 border-linha">
+          <div className="mx-auto max-w-2xl px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] flex gap-3">
+            <button
+              onClick={abrirLeitor}
+              className="flex-1 h-16 rounded-2xl bg-marca text-white text-2xl font-bold flex items-center justify-center gap-3 active:bg-marca-800"
+            >
+              <Icone nome="camera" className="w-8 h-8" />
+              Ler próxima
+            </button>
+            <button
+              onClick={abrirDigitar}
+              aria-label="Digitar o número da etiqueta"
+              className="h-16 w-16 rounded-2xl border-2 border-marca bg-white text-marca grid place-items-center"
+            >
+              <Icone nome="numero" className="w-8 h-8" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {showScanner && (
         <QRScanner
           onScan={handleScan}
           onClose={() => setShowScanner(false)}
+          onDigitar={abrirDigitar}
         />
       )}
+    </div>
+  );
+}
 
-      {/* Toast */}
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm
-          px-5 py-3 rounded-2xl shadow-lg z-50 w-max max-w-[calc(100vw-2rem)] text-center">
-          {/* Quebra linha em vez de vazar da tela: o resumo do lote e a
-              cascata passam da largura de um celular */}
-          {toast}
+/**
+ * Os locais (C01…C08, D01…, P01…) em botões grandes, uma linha por letra.
+ * Um toque salva — sem lista suspensa e sem botão "Salvar" separado.
+ */
+function GradeLocais({
+  opcoes, atual, salvando, emLote, jaTodas, onEscolher,
+}: {
+  opcoes: string[];
+  atual: string;
+  salvando: string | null;
+  emLote: boolean;
+  jaTodas: (v: string) => boolean;
+  onEscolher: (v: string) => void;
+}) {
+  const grupos = new Map<string, string[]>();
+  for (const o of opcoes) {
+    const letra = o.match(/^[A-Za-z]+/)?.[0]?.toUpperCase() ?? '';
+    grupos.set(letra, [...(grupos.get(letra) ?? []), o]);
+  }
+  return (
+    <div className="flex flex-col gap-4">
+      {[...grupos.entries()].map(([letra, itens]) => (
+        <div key={letra || 'outros'} className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+          {itens.map((v) => {
+            const marcado = emLote ? jaTodas(v) : v === atual;
+            const salvandoEste = salvando === v;
+            return (
+              <button
+                key={v}
+                onClick={() => !marcado && onEscolher(v)}
+                disabled={!!salvando}
+                aria-pressed={marcado}
+                className={`h-16 rounded-xl text-2xl font-bold num border-2 transition-colors disabled:cursor-wait ${
+                  marcado
+                    ? 'bg-cyan-800 border-cyan-800 text-white'
+                    : salvandoEste
+                      ? 'bg-cyan-100 border-cyan-800 text-cyan-900'
+                      : 'bg-white border-linha text-tinta active:bg-cyan-50'
+                }`}
+              >
+                {salvandoEste ? '…' : v}
+              </button>
+            );
+          })}
         </div>
-      )}
+      ))}
     </div>
   );
 }

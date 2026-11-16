@@ -21,6 +21,9 @@ export const CF = {
   altura:      'customfield_10063',
   modelo:      'customfield_10065',
   localizacao: 'customfield_10093',
+  codigo:      'customfield_10291',
+  /** Valor da obra em R$, no Épico — base da meta mensal */
+  valor:       'customfield_10391',
 } as const;
 
 export const JIRA_HEADERS = {
@@ -407,6 +410,19 @@ export async function findFieldId(fragment: string): Promise<string | null> {
     if (name.includes(frag)) return id;
   }
   return null;
+}
+
+/** Contagem aproximada de um JQL (rápida, sem paginar); null se falhar */
+export async function contarAprox(jql: string): Promise<number | null> {
+  try {
+    const r = await jiraFetch('/rest/api/3/search/approximate-count', {
+      method: 'POST',
+      body: JSON.stringify({ jql }),
+    });
+    return typeof r?.count === 'number' ? r.count : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Extrai valor legível de um campo customizado (string, select, etc.) */

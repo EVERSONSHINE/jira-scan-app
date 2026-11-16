@@ -1,3 +1,61 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /* Números alinhados em coluna onde a fonte permitir */
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Foco sempre visível e grosso: quem usa teclado ou leitor de tela precisa
+     achar onde está */
+  :focus-visible {
+    outline: 3px solid #3d3480;
+    outline-offset: 2px;
+  }
+
+  /* Toque sem o clarão azul do Android e sem seleção acidental de texto
+     em botões (toque longo) */
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button {
+    user-select: none;
+  }
+}
+
+/* ─── Impressão ─────────────────────────────────────────────────────────────
+   Só o relatório de localização imprime; o resto da interface some. */
+@media print {
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10.5pt;
+  }
+  .nao-imprimir {
+    display: none !important;
+  }
+  .so-impressao {
+    display: block !important;
+  }
+  thead {
+    display: table-header-group;
+  }
+  tr,
+  .manter-junto {
+    break-inside: avoid;
+  }
+  .nova-pagina {
+    break-before: page;
+  }
+}
+.so-impressao {
+  display: none;
+}
