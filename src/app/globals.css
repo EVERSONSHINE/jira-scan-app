@@ -39,6 +39,13 @@
 
   --serie-1: #2a78d6;
 
+  /* Cor cheia de cada status (botão do status atual, texto branco por cima:
+     todas passam de 4,5:1). Iguais no claro e no escuro. */
+  --st-pendente: #64748B;
+  --st-andamento: #B45309;
+  --st-concluido: #047857;
+  --st-expedido: #1D4ED8;
+
   --input-bg: #FFFFFF;
   --input-border: #D1D5DB;
 

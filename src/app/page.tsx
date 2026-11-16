@@ -85,12 +85,15 @@ const MOTIVO: Record<string, string> = {
   'sem transição no workflow': 'mudança não permitida no Jira',
 };
 
-/** Cor do pontinho de cada status (mesmos tons das etiquetas) */
-const PONTO: Record<string, string> = {
-  'Tarefas Pendentes': 'bg-tinta-suave',
-  'Em Andamento': 'bg-atencao',
-  'Concluido': 'bg-ok',
-  'Expedido': 'bg-info',
+/**
+ * Botões de status coloridos: o status atual fica cheio na cor dele; os
+ * outros com fundo suave, borda e texto da mesma cor (tons das etiquetas).
+ */
+const BOTAO_STATUS: Record<string, { livre: string; atual: string }> = {
+  'Tarefas Pendentes': { livre: 'bg-elevada text-tinta border-st-pendente', atual: 'bg-st-pendente' },
+  'Em Andamento':      { livre: 'bg-atencao-bg text-atencao border-st-andamento', atual: 'bg-st-andamento' },
+  'Concluido':         { livre: 'bg-ok-bg text-ok border-st-concluido', atual: 'bg-st-concluido' },
+  'Expedido':          { livre: 'bg-info-bg text-info border-st-expedido', atual: 'bg-st-expedido' },
 };
 
 /**
@@ -506,16 +509,14 @@ export default function Leitura() {
                       disabled={updatingStatus || (!pode && !ativo) || (ativo && !emLoteAtivo)}
                       aria-pressed={ativo}
                       title={!pode && !ativo ? 'Mudança não liberada no Jira para esta peça' : undefined}
-                      className={`min-h-[48px] px-3 rounded-lg border text-left font-semibold flex items-center gap-2.5 transition-colors
+                      className={`min-h-[48px] px-3 rounded-lg border font-semibold flex items-center justify-center gap-2 text-center transition
                         ${ativo
-                          ? `${statusSelo(s)} border-transparent`
-                          : 'bg-superficie border-linha hover:bg-superficie-hover'}
-                        ${!pode && !ativo ? 'opacity-45 cursor-not-allowed' : ''}
+                          ? `${BOTAO_STATUS[s].atual} text-white border-transparent shadow-cartao`
+                          : `${BOTAO_STATUS[s].livre} hover:brightness-95 active:brightness-90`}
+                        ${!pode && !ativo ? 'opacity-40 cursor-not-allowed hover:brightness-100' : ''}
                         ${ativo && !emLoteAtivo ? 'cursor-default' : ''}`}
                     >
-                      {ativo
-                        ? <Icone nome="check" className="w-4 h-4 shrink-0" />
-                        : <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${PONTO[s]}`} aria-hidden />}
+                      {ativo && <Icone nome="check" className="w-4 h-4 shrink-0" />}
                       <span className="leading-tight">{statusLabel(s)}</span>
                     </button>
                   );

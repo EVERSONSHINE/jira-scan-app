@@ -29,6 +29,12 @@ const config: Config = {
         info: { DEFAULT: v('info'), bg: v('info-bg') },
         roxo: { DEFAULT: v('purple'), bg: v('purple-bg') },
         serie: v('serie-1'),
+        st: {
+          pendente: v('st-pendente'),
+          andamento: v('st-andamento'),
+          concluido: v('st-concluido'),
+          expedido: v('st-expedido'),
+        },
       },
       fontFamily: {
         sans: [v('fonte-corpo'), 'system-ui', 'sans-serif'],
