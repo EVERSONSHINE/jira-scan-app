@@ -7,16 +7,16 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /**
- * Arquiva os projetos cuja expedição terminou (Épico, Tasks e Subtasks em
- * Expedido). Chamada pelo cron da Vercel de madrugada — vercel.json,
- * "0 6 * * *" em UTC = 3h de Brasília.
+ * Arquiva os projetos cuja expedição terminou há mais de ARQUIVAR_APOS_DIAS
+ * (Épico, Tasks e Subtasks em Expedido). Chamada pelo cron da Vercel de
+ * madrugada — vercel.json, "0 6 * * *" em UTC = 3h de Brasília.
  *
  * Exige o CRON_SECRET, que a Vercel manda no Authorization de toda chamada de
  * cron: sem ele, qualquer um na internet dispararia o arquivamento.
  *
  *   ?simular=1                  só lista o que seria arquivado, sem escrever
  *   ?somente=PROJ-123           um épico só (teste dirigido)
- *   ?somente=…&incluirHoje=1    não pula o que terminou hoje (só com somente)
+ *   ?somente=…&semEspera=1      não espera o prazo (só com somente)
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     const resultado = await arquivarExpedidos(process.env.JIRA_PROJECT_KEY ?? '', {
       simular: p.get('simular') === '1',
       somente,
-      incluirHoje: !!somente && p.get('incluirHoje') === '1',
+      semEspera: !!somente && p.get('semEspera') === '1',
     });
     // Vai para os logs da Vercel: é o registro do que foi arquivado em cada noite
     console.log('arquivar-expedidos', JSON.stringify(resultado));

@@ -1,5 +1,6 @@
 {
   "crons": [
+    { "path": "/api/cron/fechamento", "schedule": "50 5 * * *" },
     { "path": "/api/cron/arquivar", "schedule": "0 6 * * *" }
   ]
 }
