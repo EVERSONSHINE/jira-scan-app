@@ -1,7 +1,6 @@
 /**
- * Ícones de traço, um só estilo para o app inteiro (substituem os emojis, que
- * mudam de desenho de um celular para outro e somem em tela de baixa
- * qualidade). Grade 24×24, traço 2, pontas arredondadas.
+ * Ícones de traço no mesmo desenho dos do Shine CRM (app/js/icones.js):
+ * grade 24×24, traço 2, pontas arredondadas, cor do texto em volta.
  */
 const DESENHOS = {
   camera: (
@@ -59,14 +58,21 @@ const DESENHOS = {
       <circle cx="7.5" cy="7.5" r="1.5" />
     </>
   ),
-  refazer: <path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5" />,
+  refazer: <path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6" />,
+  tema: <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z" />,
+  busca: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
 } as const;
 
 export type NomeIcone = keyof typeof DESENHOS;
 
 export default function Icone({
   nome,
-  className = 'w-6 h-6',
+  className = 'w-[18px] h-[18px]',
   titulo,
 }: {
   nome: NomeIcone;

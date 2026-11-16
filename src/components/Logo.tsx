@@ -1,6 +1,6 @@
 /**
  * Logo da Shine Windows, gerado a partir do arquivo oficial (CMYK.svg).
- * Usa currentColor: azul-marinho sobre fundo claro, branco sobre a barra da marca.
+ * Usa currentColor: pega a cor do texto em volta (claro ou escuro).
  *
  * `linha` acrescenta "PORTAS E JANELAS DE PVC" embaixo. Só vale em tamanho
  * grande: numa barra de 40px de altura essa linha vira um risco.

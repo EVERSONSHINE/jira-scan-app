@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import CabecalhoGestao from '@/components/CabecalhoGestao';
+import Topo from '@/components/Topo';
 import Icone from '@/components/Icone';
 import { statusLabel, statusSelo } from '@/lib/status';
 import {
@@ -9,12 +9,9 @@ import {
 import type { IndicadoresData, ObraProd, PrazoMes, SemanaProd } from '@/lib/tipos';
 
 /**
- * Indicadores para a diretoria. Quatro perguntas, nesta ordem:
- *   1. Vamos bater a meta do mês?
- *   2. Estamos entregando no prazo?
- *   3. A produção está acelerando ou caindo?
- *   4. Quanto trabalho temos pela frente?
- * Depois, o detalhe: obras atrasadas e todas as obras abertas.
+ * Indicadores para a diretoria, no formato do Dashboard do Shine CRM:
+ * números do topo, depois cartões com meta, bonificação, prazo e ritmo, e por
+ * fim as tabelas de obras atrasadas e abertas.
  */
 export default function IndicadoresPage() {
   const [d, setD] = useState<IndicadoresData | null>(null);
@@ -41,38 +38,60 @@ export default function IndicadoresPage() {
   const atualizado = d ? new Date(d.fetchedAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
 
   return (
-    <div className="min-h-screen pb-16">
-      <CabecalhoGestao titulo="Indicadores">
+    <div className="min-h-screen pb-12">
+      <Topo>
         <button
+          type="button"
           onClick={carregar}
           disabled={carregando}
-          className="h-11 px-4 rounded-xl bg-white text-marca text-base font-bold flex items-center gap-2 disabled:opacity-60"
+          className="btn-icone"
+          title="Buscar os dados mais recentes"
+          aria-label="Atualizar"
         >
-          <Icone nome="refazer" className={`w-5 h-5 ${carregando ? 'animate-spin' : ''}`} />
-          <span className="hidden sm:inline">{carregando ? 'Atualizando…' : 'Atualizar'}</span>
+          <Icone nome="refazer" className={`w-[18px] h-[18px] ${carregando ? 'animate-spin' : ''}`} />
         </button>
-      </CabecalhoGestao>
+      </Topo>
 
-      <div className="mx-auto max-w-6xl px-4 sm:px-6">
+      <div className="mx-auto max-w-6xl px-4 sm:px-5 py-4 flex flex-col gap-4">
+        <div>
+          <h1 className="text-[22px]">Indicadores</h1>
+          <p className="text-tinta-suave mt-1">
+            {d ? <>Dados do Jira às {atualizado}. </> : null}
+            Meta e valores contam as obras com <b className="font-semibold text-tinta">data de entrega no mês</b>.
+          </p>
+        </div>
+
         {erro && (
-          <p className="mt-5 rounded-xl bg-amber-50 border-2 border-amber-300 p-4 text-amber-900">
-            Não foi possível atualizar{d ? '; mostrando os últimos números' : ''}. <span className="text-sm">({erro.slice(0, 140)})</span>
+          <p className="rounded-lg bg-perigo-bg text-perigo px-4 py-3">
+            Não foi possível atualizar{d ? '; mostrando os últimos números' : ''}. <span className="text-xs">({erro.slice(0, 140)})</span>
           </p>
         )}
-        {!d && !erro && <p className="py-20 text-center text-xl text-tinta-suave">Carregando os indicadores…</p>}
+        {!d && !erro && <p className="py-16 text-center text-tinta-suave">Carregando os indicadores…</p>}
 
         {d && (
           <>
-            <p className="mt-4 text-base text-tinta-suave">
-              Dados do Jira às {atualizado} · meta e valores pelas obras com <b className="text-tinta">data de entrega no mês</b>
-            </p>
-            <Meta d={d} />
-            <Bonificacao d={d} />
-            <Prazo d={d} />
-            <Ritmo d={d} />
-            <Carteira d={d} />
-            <Atrasadas obras={d.atrasadas} />
-            <Abertas obras={d.abertas} />
+            <Kpis d={d} />
+            <Avisos d={d} />
+            <div className="flex flex-wrap gap-4">
+              <Meta d={d} />
+              <Bonificacao d={d} />
+            </div>
+            <div className="flex flex-wrap gap-4">
+              <Prazo d={d} />
+              <Ritmo d={d} />
+            </div>
+            {d.atrasadas.length > 0 && (
+              <TabelaObras
+                titulo={`Obras atrasadas (${d.atrasadas.length})`}
+                sub={`Data de entrega já passou e ainda não foram expedidas · ${reais(d.atrasadas.reduce((s, o) => s + (o.valor ?? 0), 0))}`}
+                obras={d.atrasadas}
+              />
+            )}
+            <TabelaObras
+              titulo="Obras abertas"
+              sub="Tudo o que ainda não foi expedido, da entrega mais próxima para a mais distante"
+              obras={d.abertas}
+            />
           </>
         )}
       </div>
@@ -82,38 +101,128 @@ export default function IndicadoresPage() {
 
 // ─── Peças comuns ────────────────────────────────────────────────────────────
 
-function Secao({ titulo, pergunta, children }: { titulo: string; pergunta?: string; children: React.ReactNode }) {
-  return (
-    <section className="mt-12" aria-label={titulo}>
-      <h2 className="text-2xl font-bold">{titulo}</h2>
-      {pergunta && <p className="text-lg text-tinta-suave">{pergunta}</p>}
-      <div className="mt-4">{children}</div>
-    </section>
-  );
-}
+const pct = (f: number) => `${Math.round(f * 100)}%`;
 
-function Numero({ rotulo, valor, sub, destaque = '' }: {
-  rotulo: string; valor: React.ReactNode; sub?: React.ReactNode; destaque?: string;
+function Kpi({ titulo, valor, detalhe, dica, medidor }: {
+  titulo: string; valor: React.ReactNode; detalhe?: React.ReactNode; dica?: string; medidor?: number;
 }) {
   return (
-    <div className="py-4 sm:px-5 first:sm:pl-0">
-      <p className="text-base text-tinta-suave">{rotulo}</p>
-      <p className={`text-4xl font-bold leading-tight mt-1 ${destaque}`}>{valor}</p>
-      {sub && <p className="text-base text-tinta-suave mt-1">{sub}</p>}
+    <div className="kpi" title={dica}>
+      <span className="kpi-titulo">{titulo}</span>
+      <strong className="kpi-valor">{valor}</strong>
+      {detalhe && <span className="kpi-detalhe">{detalhe}</span>}
+      {medidor !== undefined && (
+        <span className="medidor mt-1.5"><span style={{ width: `${Math.min(1, Math.max(0, medidor)) * 100}%` }} /></span>
+      )}
     </div>
   );
 }
 
-function Aviso({ children }: { children: React.ReactNode }) {
+function Cartao({ titulo, sub, largo = false, children }: {
+  titulo: string; sub?: string; largo?: boolean; children: React.ReactNode;
+}) {
   return (
-    <p className="flex items-start gap-2 text-base text-amber-900">
-      <Icone nome="alerta" className="w-5 h-5 mt-0.5 text-amber-700" />
-      <span>{children}</span>
-    </p>
+    <section className={`cartao ${largo ? 'w-full' : 'flex-[1_1_340px]'}`} aria-label={titulo}>
+      <h2>{titulo}</h2>
+      {sub && <p className="cartao-sub mb-2">{sub}</p>}
+      {children}
+    </section>
   );
 }
 
-// ─── 1. Meta ─────────────────────────────────────────────────────────────────
+// ─── Números do topo ─────────────────────────────────────────────────────────
+
+function Kpis({ d }: { d: IndicadoresData }) {
+  const m = d.meta;
+  const p = d.projecao;
+  const vencidas = d.prazo.reduce((s, x) => s + x.noPrazo + x.comAtraso + x.vencidas, 0);
+  const noPrazo = d.prazo.reduce((s, x) => s + x.noPrazo, 0);
+  const atrasadasValor = d.atrasadas.reduce((s, o) => s + (o.valor ?? 0), 0);
+  return (
+    <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+      <Kpi
+        titulo={`Produzido em ${m.nomeMes}`}
+        valor={reaisCurto(m.valorProduzido)}
+        detalhe={`${pct(m.metaValor ? m.valorProduzido / m.metaValor : 0)} da meta de ${reaisCurto(m.metaValor)}`}
+        medidor={m.metaValor ? m.valorProduzido / m.metaValor : 0}
+        dica="Valor de cada obra com entrega no mês × a parte dos caixilhos já prontos"
+      />
+      <Kpi
+        titulo="Projeção do mês"
+        valor={p.valorProjetado !== null ? reaisCurto(p.valorProjetado) : '—'}
+        detalhe={p.ritmoDia !== null ? `no ritmo de ${p.ritmoDia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} caixilhos/dia` : 'sem ritmo ainda'}
+        dica="Quanto do valor do mês fica pronto até o fim, mantendo o ritmo deste mês"
+      />
+      <Kpi
+        titulo="Caixilhos prontos"
+        valor={<>{nf(m.caixilhosProntos)} <span className="text-base font-semibold text-tinta-suave">de {nf(m.caixilhosTotal)}</span></>}
+        detalhe={m.diasUteis.passados > 0 ? `pelo calendário, hoje seriam ${nf(m.esperadoHoje)}` : 'início do mês'}
+        medidor={m.caixilhosTotal ? m.caixilhosProntos / m.caixilhosTotal : 0}
+        dica="Caixilhos concluídos ou expedidos das obras com entrega no mês"
+      />
+      <Kpi
+        titulo="Precisa por dia útil"
+        valor={nf(m.porDia)}
+        detalhe={`${plural(m.diasUteis.restantes, 'dia útil', 'dias úteis')} até o fim do mês`}
+        dica="Caixilhos que faltam ÷ dias úteis (seg–sex) que restam, contando hoje"
+      />
+      <Kpi
+        titulo={`Trimestre ${d.trimestre.nome}`}
+        valor={<>{d.trimestre.batidos} <span className="text-base font-semibold text-tinta-suave">de 3</span></>}
+        detalhe="meses com a meta batida"
+        dica="A bonificação conta os meses do trimestre em que a meta foi batida"
+      />
+      <Kpi
+        titulo="Entregas no prazo"
+        valor={vencidas ? pct(noPrazo / vencidas) : '—'}
+        detalhe={`${noPrazo} de ${plural(vencidas, 'entrega', 'entregas')} · 3 meses`}
+        medidor={vencidas ? noPrazo / vencidas : undefined}
+        dica="Obras expedidas até a data de entrega, entre as que já venceram nos últimos 3 meses"
+      />
+      <Kpi
+        titulo="Entrega atrasada"
+        valor={nf(d.atrasadas.length)}
+        detalhe={`${plural(d.atrasadas.length, 'obra', 'obras')} · ${reaisCurto(atrasadasValor)}`}
+        dica="Obras não expedidas cuja data de entrega já passou"
+      />
+      <Kpi
+        titulo="Carteira"
+        valor={reaisCurto(d.carteira.valorAberto)}
+        detalhe={`${nf(d.carteira.caixilhosFaltando)} caixilhos${d.carteira.semanasDeProducao !== null
+          ? ` · ${d.carteira.semanasDeProducao.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} semanas` : ''}`}
+        dica="Valor e caixilhos ainda a produzir em todas as obras abertas; semanas no ritmo das últimas 4"
+      />
+    </div>
+  );
+}
+
+function Avisos({ d }: { d: IndicadoresData }) {
+  const m = d.meta;
+  const faltaVender = Math.max(m.metaValor - m.valorPrevisto, 0);
+  const itens: React.ReactNode[] = [];
+  if (faltaVender > 0) {
+    itens.push(<>As obras com entrega em {m.nomeMes} somam {reais(m.valorPrevisto)}: mesmo produzindo tudo, faltam <b>{reais(faltaVender)}</b> para a meta.</>);
+  }
+  if (m.obrasSemValor > 0) {
+    itens.push(<>{m.obrasSemValor} de {plural(m.obras, 'obra', 'obras')} do mês {m.obrasSemValor === 1 ? 'está' : 'estão'} <b>sem valor no Jira</b> — os valores ficam abaixo do real.</>);
+  }
+  if (m.atrasadasAnteriores.obras > 0) {
+    itens.push(<>{plural(m.atrasadasAnteriores.obras, 'obra', 'obras')} de meses anteriores ainda não {m.atrasadasAnteriores.obras === 1 ? 'ficou pronta' : 'ficaram prontas'} ({plural(m.atrasadasAnteriores.caixilhosFaltando, 'caixilho', 'caixilhos')}).</>);
+  }
+  if (!itens.length) return null;
+  return (
+    <ul className="flex flex-col gap-1.5 rounded-lg2 bg-atencao-bg px-4 py-3 text-sm">
+      {itens.map((t, i) => (
+        <li key={i} className="flex items-start gap-2 text-tinta">
+          <span className="text-atencao mt-0.5"><Icone nome="alerta" className="w-4 h-4" /></span>
+          <span>{t}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ─── Meta ────────────────────────────────────────────────────────────────────
 
 function Meta({ d }: { d: IndicadoresData }) {
   const m = d.meta;
@@ -121,71 +230,30 @@ function Meta({ d }: { d: IndicadoresData }) {
   const fr = m.metaValor > 0 ? m.valorProduzido / m.metaValor : 0;
   const frPrevisto = m.metaValor > 0 ? m.valorPrevisto / m.metaValor : 0;
   const frProj = p.valorProjetado !== null && m.metaValor > 0 ? p.valorProjetado / m.metaValor : null;
-  const faltaVender = Math.max(m.metaValor - m.valorPrevisto, 0);
 
   return (
-    <section className="mt-6 rounded-3xl bg-white border-2 border-linha p-5 sm:p-8" aria-label="Meta do mês">
-      <p className="text-xl font-bold">Meta de {m.nomeMes}</p>
-      <p className="mt-2 leading-none">
-        <span className="text-6xl sm:text-7xl font-bold">{reaisCurto(m.valorProduzido)}</span>
-        <span className="text-2xl text-tinta-suave"> produzidos de {reaisCurto(m.metaValor)}</span>
+    <Cartao titulo={`Meta de ${m.nomeMes}`} sub={`${reais(m.metaValor)} produzidos nas obras com entrega no mês`}>
+      <p className="leading-none">
+        <span className="font-titulo text-[32px] font-bold num">{reaisCurto(m.valorProduzido)}</span>
+        <span className="text-tinta-suave"> produzidos · {pct(fr)}</span>
       </p>
-
-      {/* Medidor: produzido (cheio), previsto nas obras do mês (claro), projeção (traço) */}
-      <div className="mt-5 relative h-7 rounded-full bg-marca-50" role="img"
-        aria-label={`Produzido ${Math.round(fr * 100)}% da meta; obras do mês somam ${Math.round(frPrevisto * 100)}%`}>
-        <div className="absolute inset-y-0 left-0 rounded-full bg-marca-200" style={{ width: `${Math.min(frPrevisto, 1) * 100}%` }} />
-        <div className="absolute inset-y-0 left-0 rounded-full bg-marca-600" style={{ width: `${Math.min(fr, 1) * 100}%` }} />
+      <div className="relative mt-3 h-3.5 rounded bg-elevada" role="img"
+        aria-label={`Produzido ${pct(fr)} da meta; obras do mês somam ${pct(frPrevisto)}`}>
+        <div className="absolute inset-y-0 left-0 rounded bg-acento-suave" style={{ width: `${Math.min(frPrevisto, 1) * 100}%` }} />
+        <div className="absolute inset-y-0 left-0 rounded bg-acento" style={{ width: `${Math.min(fr, 1) * 100}%` }} />
         {frProj !== null && frProj > 0 && (
-          <div className="absolute -top-2 -bottom-2 w-1 rounded bg-tinta" style={{ left: `calc(${Math.min(frProj, 1) * 100}% - 2px)` }} />
+          <div className="absolute -top-1.5 -bottom-1.5 w-0.5 rounded bg-tinta" style={{ left: `${Math.min(frProj, 1) * 100}%` }} />
         )}
       </div>
-      <ul className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-base">
-        <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-marca-600" />Produzido <b>{Math.round(fr * 100)}%</b></li>
-        <li className="flex items-center gap-2"><span className="w-4 h-4 rounded bg-marca-200" />Obras do mês <b>{reaisCurto(m.valorPrevisto)}</b></li>
+      <ul className="mt-3 flex flex-col gap-1.5 text-[13px]">
+        <li className="flex items-center gap-2"><span className="legenda-cor bg-acento" />Produzido<b className="ml-auto num">{reais(m.valorProduzido)}</b></li>
+        <li className="flex items-center gap-2"><span className="legenda-cor bg-acento-suave border border-linha" />Obras do mês somam<b className="ml-auto num">{reais(m.valorPrevisto)}</b></li>
         {p.valorProjetado !== null && (
-          <li className="flex items-center gap-2"><span className="w-1 h-5 rounded bg-tinta" />Projeção no ritmo atual <b>{reaisCurto(p.valorProjetado)}</b></li>
+          <li className="flex items-center gap-2"><span className="w-0.5 h-3.5 mx-[5px] rounded bg-tinta" />Projeção no ritmo atual<b className="ml-auto num">{reais(p.valorProjetado)}</b></li>
         )}
+        <li className="flex items-center gap-2 text-tinta-suave"><span className="legenda-cor bg-elevada" />Meta<b className="ml-auto num text-tinta">{reais(m.metaValor)}</b></li>
       </ul>
-
-      <div className="mt-6 grid sm:grid-cols-3 sm:divide-x-2 divide-linha border-t-2 border-linha">
-        <Numero
-          rotulo="Caixilhos prontos"
-          valor={<>{nf(m.caixilhosProntos)} <span className="text-2xl text-tinta-suave">de {nf(m.caixilhosTotal)}</span></>}
-          sub={m.diasUteis.passados > 0 ? `pelo calendário, hoje seriam ${nf(m.esperadoHoje)}` : undefined}
-        />
-        <Numero
-          rotulo="No ritmo atual, até o fim do mês"
-          valor={p.caixilhosProjetados !== null ? <>{nf(p.caixilhosProjetados)} <span className="text-2xl text-tinta-suave">caixilhos</span></> : '—'}
-          sub={p.ritmoDia !== null ? `${p.ritmoDia.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} por dia útil este mês` : undefined}
-        />
-        <Numero
-          rotulo="Precisa por dia útil"
-          valor={<>{nf(m.porDia)} <span className="text-2xl text-tinta-suave">caixilhos</span></>}
-          sub={`${m.diasUteis.restantes} dias úteis até o fim do mês`}
-        />
-      </div>
-
-      <div className="mt-4 flex flex-col gap-2">
-        {faltaVender > 0 && (
-          <Aviso>
-            As obras com entrega em {m.nomeMes} somam {reais(m.valorPrevisto)}: mesmo produzindo tudo, faltam{' '}
-            <b>{reais(faltaVender)}</b> para a meta.
-          </Aviso>
-        )}
-        {m.obrasSemValor > 0 && (
-          <Aviso>
-            {m.obrasSemValor} de {plural(m.obras, 'obra', 'obras')} do mês {m.obrasSemValor === 1 ? 'está' : 'estão'} <b>sem valor no Jira</b> — os valores acima estão abaixo do real.
-          </Aviso>
-        )}
-        {m.atrasadasAnteriores.obras > 0 && (
-          <Aviso>
-            Além do mês: {plural(m.atrasadasAnteriores.obras, 'obra', 'obras')} de meses anteriores ainda não {m.atrasadasAnteriores.obras === 1 ? 'ficou pronta' : 'ficaram prontas'}
-            ({plural(m.atrasadasAnteriores.caixilhosFaltando, 'caixilho', 'caixilhos')}).
-          </Aviso>
-        )}
-      </div>
-    </section>
+    </Cartao>
   );
 }
 
@@ -193,141 +261,124 @@ function Meta({ d }: { d: IndicadoresData }) {
 
 function Bonificacao({ d }: { d: IndicadoresData }) {
   const t = d.trimestre;
-  const abertos = t.meses.filter((m) => m.batida === null).length;
   return (
-    <Secao
+    <Cartao
       titulo={`Bonificação do trimestre (${t.nome})`}
-      pergunta={`Mês batido: o valor produzido das obras com entrega no mês chegou à meta de ${reaisCurto(d.meta.metaValor)}`}
+      sub={`Mês batido: valor produzido das obras com entrega no mês ≥ ${reaisCurto(d.meta.metaValor)}`}
     >
-      <p className="text-2xl">
-        <b className="text-4xl">{t.batidos}</b> de 3 meses batidos
-        {abertos > 0 && <span className="text-tinta-suave"> · {abertos === 1 ? '1 mês ainda em aberto' : `${abertos} meses ainda em aberto`}</span>}
-      </p>
-      <ul className="mt-4 grid sm:grid-cols-3 gap-4">
+      <ul className="flex flex-col divide-y divide-linha">
         {t.meses.map((m) => {
           const fr = m.valorProduzido !== null && m.metaValor > 0 ? m.valorProduzido / m.metaValor : 0;
-          const selo = m.batida === true
-            ? { cls: 'bg-emerald-700 text-white', icone: 'check' as const, texto: 'Batida' }
+          const tag = m.batida === true
+            ? { cls: 'bg-ok-bg text-ok', texto: 'Batida' }
             : m.batida === false
-              ? { cls: 'bg-red-700 text-white', icone: 'fechar' as const, texto: 'Não batida' }
+              ? { cls: 'bg-perigo-bg text-perigo', texto: 'Não batida' }
               : m.situacao === 'em-andamento'
-                ? { cls: 'bg-marca-100 text-marca', icone: null, texto: 'Em andamento' }
-                : { cls: 'bg-slate-200 text-slate-800', icone: null, texto: 'Ainda não começou' };
+                ? { cls: 'bg-acento-suave text-acento', texto: 'Em andamento' }
+                : { cls: 'bg-elevada text-tinta-suave', texto: 'Não começou' };
           return (
-            <li key={m.mes} className="rounded-2xl bg-white border-2 border-linha p-5">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xl font-bold">{inicial(m.nomeMes)}</p>
-                <span className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-0.5 text-base font-bold ${selo.cls}`}>
-                  {selo.icone && <Icone nome={selo.icone} className="w-4 h-4" />}
-                  {selo.texto}
+            <li key={m.mes} className="py-3 first:pt-1 last:pb-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">{inicial(m.nomeMes)}</span>
+                <span className={`tag ${tag.cls}`}>
+                  {m.batida === true && <Icone nome="check" className="w-3 h-3" />}
+                  {tag.texto}
+                </span>
+                <span className="ml-auto font-semibold num">
+                  {m.valorProduzido !== null ? reaisCurto(m.valorProduzido) : '—'}
                 </span>
               </div>
-              {m.valorProduzido !== null ? (
-                <>
-                  <p className="mt-3 leading-none">
-                    <span className="text-3xl font-bold">{reaisCurto(m.valorProduzido)}</span>
-                    <span className="text-lg text-tinta-suave"> de {reaisCurto(m.metaValor)}</span>
-                  </p>
-                  <div className="mt-3 h-3 rounded-full bg-marca-50" aria-hidden>
-                    <div
-                      className={`h-full rounded-full ${m.batida === true ? 'bg-emerald-600' : 'bg-marca-600'}`}
-                      style={{ width: `${Math.min(fr, 1) * 100}%` }}
-                    />
-                  </div>
-                  <p className="mt-2 text-base text-tinta-suave">
-                    {m.situacao === 'fechado' && 'Fechamento gravado na virada do mês.'}
-                    {m.situacao === 'estimado' && 'Estimativa com os dados de hoje: o fechamento deste mês não foi gravado.'}
-                    {m.situacao === 'em-andamento' && `${Math.round(fr * 100)}% da meta até agora.`}
-                    {m.obrasSemValor > 0 && <span className="text-amber-900 font-bold"> {plural(m.obrasSemValor, 'obra', 'obras')} sem valor.</span>}
-                  </p>
-                </>
-              ) : (
-                <p className="mt-3 text-lg text-tinta-suave">Começa em {m.nomeMes}.</p>
+              {m.valorProduzido !== null && (
+                <span className="medidor mt-2"><span className={m.batida ? '!bg-ok' : ''} style={{ width: `${Math.min(fr, 1) * 100}%` }} /></span>
               )}
+              <p className="mt-1 text-xs text-tinta-suave">
+                {m.situacao === 'fechado' && 'Fechamento gravado na virada do mês.'}
+                {m.situacao === 'estimado' && 'Estimativa com os dados de hoje (fechamento não gravado).'}
+                {m.situacao === 'em-andamento' && `${pct(fr)} da meta até agora.`}
+                {m.situacao === 'futuro' && `Começa em ${m.nomeMes}.`}
+                {m.obrasSemValor > 0 && <span className="text-atencao font-semibold"> {plural(m.obrasSemValor, 'obra', 'obras')} sem valor.</span>}
+              </p>
             </li>
           );
         })}
       </ul>
-    </Secao>
+    </Cartao>
   );
 }
 
-// ─── 2. Prazo ────────────────────────────────────────────────────────────────
+// ─── Prazo ───────────────────────────────────────────────────────────────────
 
-const PARTES_PRAZO: Array<{ chave: keyof PrazoMes; nome: string; cor: string; texto: string }> = [
-  { chave: 'noPrazo',   nome: 'Entregues no prazo',  cor: 'bg-emerald-600', texto: 'text-white' },
-  { chave: 'comAtraso', nome: 'Entregues com atraso', cor: 'bg-amber-400',   texto: 'text-tinta' },
-  { chave: 'vencidas',  nome: 'Data passou, sem entregar', cor: 'bg-red-700', texto: 'text-white' },
-  { chave: 'aVencer',   nome: 'Ainda no prazo',      cor: 'bg-slate-300',   texto: 'text-tinta' },
+const PARTES_PRAZO: Array<{ chave: keyof PrazoMes; nome: string; cor: string }> = [
+  { chave: 'noPrazo',   nome: 'No prazo',             cor: 'bg-ok' },
+  { chave: 'comAtraso', nome: 'Com atraso',           cor: 'bg-atencao' },
+  { chave: 'vencidas',  nome: 'Venceu sem entregar',  cor: 'bg-perigo' },
+  { chave: 'aVencer',   nome: 'Ainda no prazo',       cor: 'bg-linha-forte' },
 ];
 
 function Prazo({ d }: { d: IndicadoresData }) {
+  const parcial = d.prazo.some((m) => m.mes <= d.historicoDesde.slice(0, 7));
   return (
-    <Secao titulo="Entregas no prazo" pergunta="Obras pela data de entrega prevista, por mês">
-      <div className="flex flex-col gap-5">
+    <Cartao titulo="Entregas no prazo" sub="Obras pela data de entrega prevista">
+      <div className="flex flex-col gap-4">
         {d.prazo.map((m) => {
           const vencidas = m.noPrazo + m.comAtraso + m.vencidas;
-          const pct = vencidas > 0 ? Math.round((m.noPrazo / vencidas) * 100) : null;
           return (
-            <div key={m.mes} className="grid sm:grid-cols-[10rem_1fr] gap-x-5 gap-y-2 items-center">
-              <p className="leading-tight">
-                <span className="text-lg font-bold">{inicial(m.nomeMes)}</span>
-                <span className="block text-base text-tinta-suave">
-                  {pct !== null ? <><b className="text-tinta text-xl">{pct}%</b> no prazo</> : 'nenhuma venceu ainda'}
+            <div key={m.mes}>
+              <div className="flex items-baseline gap-2 text-[13px]">
+                <span className="font-semibold text-sm">{inicial(m.nomeMes)}</span>
+                <span className="text-tinta-suave">{plural(m.total, 'obra', 'obras')}</span>
+                <span className="ml-auto font-semibold">
+                  {vencidas ? `${pct(m.noPrazo / vencidas)} no prazo` : 'nenhuma venceu ainda'}
                 </span>
-              </p>
-              {m.total === 0 ? (
-                <p className="text-base text-tinta-suave">Nenhuma obra com entrega neste mês.</p>
-              ) : (
-                <div className="flex h-7 gap-[2px]" role="img"
+              </div>
+              {m.total > 0 ? (
+                <div className="mt-1.5 flex h-3.5 gap-[2px] rounded overflow-hidden" role="img"
                   aria-label={PARTES_PRAZO.map((p) => `${p.nome}: ${m[p.chave]}`).join(', ')}>
-                  {PARTES_PRAZO.filter((p) => (m[p.chave] as number) > 0).map((p) => {
-                    const n = m[p.chave] as number;
-                    return (
-                      <div
-                        key={p.chave}
-                        title={`${p.nome}: ${n}`}
-                        className={`${p.cor} ${p.texto} rounded flex items-center px-2 text-base font-bold num overflow-hidden`}
-                        style={{ width: `${(n / m.total) * 100}%`, minWidth: '0.5rem' }}
-                      >
-                        {n / m.total >= 0.08 ? n : ''}
-                      </div>
-                    );
-                  })}
+                  {PARTES_PRAZO.filter((p) => (m[p.chave] as number) > 0).map((p) => (
+                    <span
+                      key={p.chave}
+                      title={`${p.nome}: ${m[p.chave]}`}
+                      className={p.cor}
+                      style={{ flex: `${m[p.chave]} 1 0`, minWidth: 6 }}
+                    />
+                  ))}
                 </div>
+              ) : (
+                <p className="mt-1 text-xs text-tinta-suave">Nenhuma obra com entrega neste mês.</p>
               )}
+              <p className="mt-1 text-xs text-tinta-suave num">
+                {PARTES_PRAZO.filter((p) => (m[p.chave] as number) > 0).map((p) => `${m[p.chave]} ${p.nome.toLowerCase()}`).join(' · ')}
+              </p>
             </div>
           );
         })}
       </div>
-      <ul className="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-base">
+      <ul className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {PARTES_PRAZO.map((p) => (
-          <li key={p.chave} className="flex items-center gap-2"><span className={`w-4 h-4 rounded ${p.cor}`} />{p.nome}</li>
+          <li key={p.chave} className="flex items-center gap-1.5"><span className={`legenda-cor ${p.cor}`} />{p.nome}</li>
         ))}
       </ul>
-      {d.prazo.some((m) => `${m.mes}-31` < d.historicoDesde || m.mes === d.historicoDesde.slice(0, 7)) && (
-        <p className="mt-3 text-base text-tinta-suave">
-          Até {dataLonga(d.historicoDesde)} as obras expedidas eram arquivadas no dia seguinte e saíam da contagem;
-          os meses até lá aparecem com menos entregas do que tiveram.
+      {parcial && (
+        <p className="mt-2 text-xs text-tinta-suave">
+          Até {dataLonga(d.historicoDesde)} as obras expedidas eram arquivadas no dia seguinte; esses meses aparecem com menos entregas.
         </p>
       )}
-    </Secao>
+    </Cartao>
   );
 }
 
-// ─── 3. Ritmo semanal ────────────────────────────────────────────────────────
+// ─── Ritmo semanal ───────────────────────────────────────────────────────────
 
-/** Escala "redonda" para o eixo: 0, 20, 40… */
+/** Passo "redondo" para o eixo: 0, 10, 20… */
 function passoEixo(max: number) {
-  const bruto = max / 4;
+  const bruto = max / 3;
   const pot = 10 ** Math.floor(Math.log10(Math.max(bruto, 1)));
   return [1, 2, 2.5, 5, 10].map((m) => m * pot).find((p) => p >= bruto) ?? pot * 10;
 }
 
 function Ritmo({ d }: { d: IndicadoresData }) {
   const s = d.semanas;
-  const valores = s.map((x) => x.caixilhos ?? 0);
-  const topo = Math.max(...valores, d.metaSemanal ?? 0, 1);
+  const topo = Math.max(...s.map((x) => x.caixilhos ?? 0), d.metaSemanal ?? 0, 1);
   const passo = passoEixo(topo);
   const max = Math.ceil(topo / passo) * passo;
   const ticks = Array.from({ length: Math.round(max / passo) + 1 }, (_, i) => i * passo);
@@ -335,91 +386,87 @@ function Ritmo({ d }: { d: IndicadoresData }) {
   const ultimaFechada = s.length >= 2 ? s[s.length - 2] : null;
 
   return (
-    <Secao titulo="Ritmo da produção" pergunta="Caixilhos concluídos por semana (segunda a domingo)">
-      <div className="rounded-2xl bg-white border-2 border-linha p-4 sm:p-6">
-        <div className="relative h-64 pl-10 pr-2">
-          {/* Grade e eixo */}
-          {ticks.map((t) => (
-            <div key={t} className="absolute left-10 right-0 border-t border-slate-200" style={{ bottom: `${(t / max) * 100}%` }}>
-              <span className="absolute -left-10 w-8 -translate-y-1/2 text-right text-sm text-tinta-suave num">{t}</span>
-            </div>
-          ))}
-          {/* Meta semanal */}
-          {d.metaSemanal !== null && d.metaSemanal > 0 && (
-            <div className="absolute left-10 right-0 border-t-2 border-tinta z-10 pointer-events-none" style={{ bottom: `${(d.metaSemanal / max) * 100}%` }} />
-          )}
-          {/* Colunas */}
-          <div className="absolute inset-0 left-10 flex items-end gap-[2px]">
-            {s.map((w, i) => {
-              const atual = i === s.length - 1;
-              const v = w.caixilhos;
-              return (
-                <button
-                  key={w.inicio}
-                  type="button"
-                  onMouseEnter={() => setFoco(i)}
-                  onMouseLeave={() => setFoco(null)}
-                  onFocus={() => setFoco(i)}
-                  onBlur={() => setFoco(null)}
-                  onClick={() => setFoco(foco === i ? null : i)}
-                  aria-label={`Semana de ${dataCurta(w.inicio)}: ${v ?? 'sem dado'} caixilhos${atual ? ', em andamento' : ''}`}
-                  className="relative flex-1 h-full flex items-end justify-center outline-none"
-                >
-                  <span
-                    className={`w-full max-w-[24px] rounded-t ${atual ? 'bg-marca-200' : 'bg-marca-600'} ${foco === i ? 'ring-2 ring-tinta ring-offset-2' : ''}`}
-                    style={{ height: `${((v ?? 0) / max) * 100}%`, minHeight: v ? 2 : 0 }}
-                  />
-                  {foco === i && (
-                    <span className="absolute bottom-full mb-2 z-20 whitespace-nowrap rounded-lg bg-tinta text-white px-3 py-2 text-sm text-left shadow-lg">
-                      Semana de {dataCurta(w.inicio)}{atual && ' (em andamento)'}
-                      <b className="block text-lg num">{v ?? '—'} caixilhos</b>
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+    <Cartao titulo="Ritmo da produção" sub="Caixilhos concluídos por semana (segunda a domingo)">
+      <div className="relative h-44 pl-8 mt-2">
+        {ticks.map((t) => (
+          <div key={t} className="absolute left-8 right-0 border-t border-linha" style={{ bottom: `${(t / max) * 100}%` }}>
+            <span className="absolute -left-8 w-6 -translate-y-1/2 text-right text-[11px] text-tinta-suave num">{t}</span>
           </div>
-        </div>
-        {/* Datas: uma sim, uma não no celular */}
-        <div className="pl-10 pr-2 mt-2 flex gap-[2px]">
-          {s.map((w, i) => (
-            <span key={w.inicio} className={`flex-1 text-center text-sm text-tinta-suave num ${i % 2 ? 'hidden sm:block' : ''}`}>
-              {dataCurta(w.inicio)}
-            </span>
-          ))}
-        </div>
+        ))}
         {d.metaSemanal !== null && d.metaSemanal > 0 && (
-          <p className="mt-3 flex items-center gap-2 text-base">
-            <span className="w-6 border-t-2 border-tinta" aria-hidden />
-            Precisa de <b>{d.metaSemanal} por semana</b> para entregar os caixilhos de {d.meta.nomeMes}
-          </p>
+          <div className="absolute left-8 right-0 border-t-2 border-dashed border-tinta-suave z-10 pointer-events-none"
+            style={{ bottom: `${(d.metaSemanal / max) * 100}%` }} />
         )}
-        <p className="mt-2 text-base">
-          {ultimaFechada?.caixilhos != null && (
-            <>Semana passada: <b>{ultimaFechada.caixilhos} caixilhos</b>. </>
-          )}
-          Esta semana, até agora: <b>{s[s.length - 1]?.caixilhos ?? '—'}</b> (coluna clara).
-        </p>
-        <TabelaSemanas s={s} />
+        <div className="absolute inset-0 left-8 flex items-end gap-[2px]">
+          {s.map((w, i) => {
+            const atual = i === s.length - 1;
+            const v = w.caixilhos;
+            return (
+              <button
+                key={w.inicio}
+                type="button"
+                onMouseEnter={() => setFoco(i)}
+                onMouseLeave={() => setFoco(null)}
+                onFocus={() => setFoco(i)}
+                onBlur={() => setFoco(null)}
+                onClick={() => setFoco(foco === i ? null : i)}
+                aria-label={`Semana de ${dataCurta(w.inicio)}: ${v ?? 'sem dado'} caixilhos${atual ? ', em andamento' : ''}`}
+                className="relative flex-1 h-full flex items-end justify-center outline-none"
+              >
+                <span
+                  className={`w-full max-w-[22px] rounded-t-[3px] bg-serie ${atual ? 'opacity-40' : ''} ${foco === i ? 'brightness-110' : ''}`}
+                  style={{ height: `${((v ?? 0) / max) * 100}%`, minHeight: v ? 2 : 0 }}
+                />
+                {foco === i && (
+                  <span className="absolute bottom-full mb-1.5 z-20 whitespace-nowrap rounded-lg bg-elevada border border-linha-forte shadow-pop px-2.5 py-1.5 text-xs text-left">
+                    Semana de {dataCurta(w.inicio)}{atual && ' (em andamento)'}
+                    <b className="block text-sm num">{v ?? '—'} caixilhos</b>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <p className="mt-3 text-base text-tinta-suave">
-        Semanas antes de {dataLonga(d.historicoDesde)} contam só os caixilhos de obras que ainda não tinham sido arquivadas.
+      <div className="pl-8 mt-1 flex gap-[2px]">
+        {s.map((w, i) => (
+          <span key={w.inicio} className={`flex-1 min-w-0 whitespace-nowrap text-center text-[11px] text-tinta-suave num ${i % 2 ? 'invisible sm:visible' : ''}`}>
+            {dataCurta(w.inicio)}
+          </span>
+        ))}
+      </div>
+      <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-tinta-suave">
+        {d.metaSemanal !== null && d.metaSemanal > 0 && (
+          <li className="flex items-center gap-1.5">
+            <span className="w-5 border-t-2 border-dashed border-tinta-suave" aria-hidden />
+            precisa de {d.metaSemanal} por semana para o mês
+          </li>
+        )}
+        <li className="flex items-center gap-1.5"><span className="legenda-cor bg-serie opacity-40" />semana atual, até agora</li>
+      </ul>
+      <p className="mt-1 text-[13px]">
+        {ultimaFechada?.caixilhos != null && <>Semana passada: <b>{ultimaFechada.caixilhos}</b>. </>}
+        Esta semana: <b>{s[s.length - 1]?.caixilhos ?? '—'}</b>.
       </p>
-    </Secao>
+      <TabelaSemanas s={s} />
+      <p className="text-xs text-tinta-suave">
+        Antes de {dataLonga(d.historicoDesde)} contam só os caixilhos de obras que não tinham sido arquivadas.
+      </p>
+    </Cartao>
   );
 }
 
 function TabelaSemanas({ s }: { s: SemanaProd[] }) {
   return (
-    <details className="mt-3">
-      <summary className="cursor-pointer text-base font-bold text-marca-600">Ver os números</summary>
-      <table className="mt-2 text-base">
-        <thead><tr><th className="text-left pr-6 font-bold">Semana de</th><th className="text-right font-bold">Caixilhos</th></tr></thead>
+    <details className="text-[13px]">
+      <summary className="cursor-pointer font-semibold text-acento">Ver em tabela</summary>
+      <table className="tabela mt-1 max-w-xs text-[13px] [&_td]:py-1 [&_th]:py-1">
+        <thead><tr><th>Semana de</th><th className="num">Caixilhos</th></tr></thead>
         <tbody>
           {s.map((w) => (
-            <tr key={w.inicio} className="border-t border-linha">
-              <td className="pr-6 py-1 num">{dataCurta(w.inicio)}</td>
-              <td className="text-right py-1 num">{w.caixilhos ?? '—'}</td>
+            <tr key={w.inicio}>
+              <td className="num">{dataCurta(w.inicio)}</td>
+              <td className="num">{w.caixilhos ?? '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -428,120 +475,67 @@ function TabelaSemanas({ s }: { s: SemanaProd[] }) {
   );
 }
 
-// ─── 4. Carteira ─────────────────────────────────────────────────────────────
+// ─── Tabelas de obras ────────────────────────────────────────────────────────
 
-function Carteira({ d }: { d: IndicadoresData }) {
-  const c = d.carteira;
+function TabelaObras({ titulo, sub, obras }: { titulo: string; sub: string; obras: ObraProd[] }) {
   return (
-    <Secao titulo="Carteira" pergunta="Tudo o que ainda não foi expedido">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 border-y-2 border-linha">
-        <Numero rotulo="Obras abertas" valor={nf(c.obras)} />
-        <Numero rotulo="Caixilhos a produzir" valor={nf(c.caixilhosFaltando)} />
-        <Numero
-          rotulo="Valor a produzir"
-          valor={reaisCurto(c.valorAberto)}
-          sub={c.obrasSemValor > 0 ? `${plural(c.obrasSemValor, 'obra', 'obras')} sem valor no Jira` : undefined}
-        />
-        <Numero
-          rotulo="Trabalho na fila"
-          valor={c.semanasDeProducao !== null
-            ? <>{c.semanasDeProducao.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} <span className="text-2xl text-tinta-suave">semanas</span></>
-            : '—'}
-          sub="no ritmo das últimas 4 semanas"
-        />
+    <section aria-label={titulo} className="flex flex-col gap-2">
+      <div>
+        <h2 className="text-base">{titulo}</h2>
+        <p className="cartao-sub">{sub}</p>
       </div>
-    </Secao>
-  );
-}
-
-// ─── Detalhe ─────────────────────────────────────────────────────────────────
-
-function Atrasadas({ obras }: { obras: ObraProd[] }) {
-  if (obras.length === 0) {
-    return (
-      <Secao titulo="Obras atrasadas">
-        <p className="flex items-center gap-2 text-lg text-emerald-800 font-bold">
-          <Icone nome="check" className="w-6 h-6" /> Nenhuma obra com a data de entrega vencida.
-        </p>
-      </Secao>
-    );
-  }
-  const valor = obras.reduce((s, o) => s + (o.valor ?? 0), 0);
-  return (
-    <Secao
-      titulo={`Obras atrasadas (${obras.length})`}
-      pergunta={`Data de entrega já passou e ainda não foram expedidas${valor > 0 ? ` · ${reais(valor)}` : ''}`}
-    >
-      <TabelaObras obras={obras} />
-    </Secao>
-  );
-}
-
-function Abertas({ obras }: { obras: ObraProd[] }) {
-  return (
-    <Secao titulo="Todas as obras abertas" pergunta="Pela data de entrega, da mais próxima para a mais distante">
-      <TabelaObras obras={obras} />
-    </Secao>
-  );
-}
-
-function TabelaObras({ obras }: { obras: ObraProd[] }) {
-  return (
-    <div className="overflow-x-auto rounded-2xl border-2 border-linha bg-white">
-      <table className="w-full min-w-[44rem] text-base">
-        <thead>
-          <tr className="border-b-2 border-linha text-left text-sm text-tinta-suave">
-            <th className="px-4 py-3 font-bold">Entrega</th>
-            <th className="px-4 py-3 font-bold">Obra</th>
-            <th className="px-4 py-3 font-bold text-right">Valor</th>
-            <th className="px-4 py-3 font-bold">Caixilhos prontos</th>
-            <th className="px-4 py-3 font-bold">Situação</th>
-          </tr>
-        </thead>
-        <tbody>
-          {obras.map((o) => {
-            const c = o.caixilhos;
-            const atrasada = o.dias !== null && o.dias < 0;
-            return (
-              <tr key={o.key} className="border-t border-linha align-top">
-                <td className="px-4 py-3 whitespace-nowrap">
-                  {o.duedate
-                    ? <>
-                        <b className="num">{dataCurta(o.duedate)}</b>
-                        <span className={`block text-sm ${atrasada ? 'text-red-800 font-bold' : 'text-tinta-suave'}`}>
-                          {prazoRelativo(o.dias ?? 0)}
+      <div className="tabela-rolagem">
+        <table className="tabela min-w-[44rem] text-sm">
+          <thead>
+            <tr>
+              <th>Entrega</th>
+              <th>Obra</th>
+              <th className="num">Valor</th>
+              <th>Caixilhos prontos</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {obras.map((o) => {
+              const c = o.caixilhos;
+              const atrasada = o.dias !== null && o.dias < 0;
+              return (
+                <tr key={o.key} className="hover:bg-superficie-hover">
+                  <td className="whitespace-nowrap">
+                    {o.duedate
+                      ? <>
+                          <span className="font-semibold num">{dataCurta(o.duedate)}</span>
+                          <span className={`block text-xs ${atrasada ? 'text-perigo font-semibold' : 'text-tinta-suave'}`}>
+                            {prazoRelativo(o.dias ?? 0)}
+                          </span>
+                        </>
+                      : <span className="text-tinta-suave">sem data</span>}
+                  </td>
+                  <td>
+                    <span className="font-semibold leading-snug">{o.nome}</span>
+                    {o.documento && <span className="block text-xs text-tinta-suave num">{o.documento}</span>}
+                  </td>
+                  <td className="num whitespace-nowrap">
+                    {o.valor !== null ? reais(o.valor) : <span className="tag bg-atencao-bg text-atencao">sem valor</span>}
+                  </td>
+                  <td className="min-w-[10rem]">
+                    {c.total > 0 ? (
+                      <>
+                        <span className="num"><b>{c.prontos}</b> de {c.total}</span>
+                        <span className="mt-1 flex h-1.5 rounded-full overflow-hidden bg-elevada gap-[2px]" aria-hidden>
+                          {c.prontos > 0 && <span className="bg-ok" style={{ width: `${(c.prontos / c.total) * 100}%` }} />}
+                          {c.emProducao > 0 && <span className="bg-atencao" style={{ width: `${(c.emProducao / c.total) * 100}%` }} />}
                         </span>
                       </>
-                    : <span className="text-tinta-suave">sem data</span>}
-                </td>
-                <td className="px-4 py-3">
-                  <b className="leading-snug">{o.nome}</b>
-                  {o.documento && <span className="block text-sm text-tinta-suave num">Pedido {o.documento}</span>}
-                </td>
-                <td className="px-4 py-3 text-right whitespace-nowrap num">
-                  {o.valor !== null ? reais(o.valor) : <span className="text-amber-800 text-sm font-bold">sem valor</span>}
-                </td>
-                <td className="px-4 py-3 min-w-[11rem]">
-                  {c.total > 0 ? (
-                    <>
-                      <span className="num"><b>{c.prontos}</b> de {c.total}</span>
-                      <span className="mt-1 flex h-2 rounded-full overflow-hidden bg-slate-200 gap-[2px]" aria-hidden>
-                        {c.prontos > 0 && <span className="bg-emerald-600" style={{ width: `${(c.prontos / c.total) * 100}%` }} />}
-                        {c.emProducao > 0 && <span className="bg-amber-500" style={{ width: `${(c.emProducao / c.total) * 100}%` }} />}
-                      </span>
-                    </>
-                  ) : <span className="text-tinta-suave text-sm">sem caixilhos</span>}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`inline-block rounded-md px-2 font-bold whitespace-nowrap ${statusSelo(o.status)}`}>
-                    {statusLabel(o.status)}
-                  </span>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+                    ) : <span className="text-tinta-suave text-xs">sem caixilhos</span>}
+                  </td>
+                  <td><span className={`tag ${statusSelo(o.status)}`}>{statusLabel(o.status)}</span></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }

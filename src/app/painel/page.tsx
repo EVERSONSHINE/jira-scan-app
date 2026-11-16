@@ -25,6 +25,17 @@ export default function PainelPage() {
 
   useWakeLock();
 
+  // A TV é sempre clara, seja qual for o tema do aparelho
+  useEffect(() => {
+    const html = document.documentElement;
+    const antes = html.dataset.tema;
+    html.dataset.tema = 'claro';
+    return () => {
+      if (antes) html.dataset.tema = antes;
+      else delete html.dataset.tema;
+    };
+  }, []);
+
   // A TV fica sem ninguém por perto: se o app travar, só um reload o desfaz
   useEffect(() => {
     const id = setInterval(() => {

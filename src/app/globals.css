@@ -2,27 +2,380 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Tokens: os mesmos do Shine CRM (app/styles.css) ──────────────────────
+   Claro por padrão; escuro quando o aparelho pede (ou a pessoa escolhe no
+   botão de tema). A TV e a impressão são sempre claras. */
+
+:root,
+:root[data-tema="claro"] {
+  --bg: #F7F8FA;
+  --surface: #FFFFFF;
+  --surface-hover: #F3F4F6;
+  --surface-raised: #EEF0F3;
+  --surface-raised-hover: #E4E7EB;
+  --border: #E5E7EB;
+  --border-strong: #D1D5DB;
+  --overlay: rgba(15, 23, 42, 0.40);
+
+  --text-primary: #1A1D26;
+  --text-secondary: #5B6472;
+
+  --accent: #4F46E5;
+  --accent-strong: #4F46E5;
+  --accent-strong-hover: #4338CA;
+  --accent-muted: rgba(79, 70, 229, 0.10);
+  --on-accent: #FFFFFF;
+
+  --success: #047857;
+  --success-bg: rgba(5, 150, 105, 0.10);
+  --warning: #B45309;
+  --warning-bg: rgba(217, 119, 6, 0.12);
+  --danger: #DC2626;
+  --danger-bg: rgba(220, 38, 38, 0.10);
+  --info: #1D4ED8;
+  --info-bg: rgba(59, 130, 246, 0.10);
+  --purple: #7C3AED;
+  --purple-bg: rgba(124, 58, 237, 0.10);
+
+  --serie-1: #2a78d6;
+
+  --input-bg: #FFFFFF;
+  --input-border: #D1D5DB;
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-pop: 0 8px 24px rgba(15, 23, 42, 0.12);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-tema="claro"]) {
+    --bg: #14161D;
+    --surface: #1A1D26;
+    --surface-hover: #21242F;
+    --surface-raised: #262A36;
+    --surface-raised-hover: #2D3140;
+    --border: rgba(255, 255, 255, 0.07);
+    --border-strong: rgba(255, 255, 255, 0.14);
+    --overlay: rgba(8, 9, 13, 0.62);
+    --text-primary: #E6E8EC;
+    --text-secondary: #9CA1AD;
+    --accent: #818CF8;
+    --accent-strong: #6366F1;
+    --accent-strong-hover: #7478F3;
+    --accent-muted: rgba(129, 140, 248, 0.14);
+    --success: #34D399;
+    --success-bg: rgba(52, 211, 153, 0.12);
+    --warning: #FBBF24;
+    --warning-bg: rgba(251, 191, 36, 0.12);
+    --danger: #F87171;
+    --danger-bg: rgba(248, 113, 113, 0.12);
+    --info: #60A5FA;
+    --info-bg: rgba(96, 165, 250, 0.12);
+    --purple: #A78BFA;
+    --purple-bg: rgba(167, 139, 250, 0.12);
+    --serie-1: #3987e5;
+    --input-bg: rgba(0, 0, 0, 0.22);
+    --input-border: rgba(255, 255, 255, 0.12);
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.30);
+    --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.35);
+    color-scheme: dark;
+  }
+}
+
+:root[data-tema="escuro"] {
+  --bg: #14161D;
+  --surface: #1A1D26;
+  --surface-hover: #21242F;
+  --surface-raised: #262A36;
+  --surface-raised-hover: #2D3140;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --overlay: rgba(8, 9, 13, 0.62);
+  --text-primary: #E6E8EC;
+  --text-secondary: #9CA1AD;
+  --accent: #818CF8;
+  --accent-strong: #6366F1;
+  --accent-strong-hover: #7478F3;
+  --accent-muted: rgba(129, 140, 248, 0.14);
+  --success: #34D399;
+  --success-bg: rgba(52, 211, 153, 0.12);
+  --warning: #FBBF24;
+  --warning-bg: rgba(251, 191, 36, 0.12);
+  --danger: #F87171;
+  --danger-bg: rgba(248, 113, 113, 0.12);
+  --info: #60A5FA;
+  --info-bg: rgba(96, 165, 250, 0.12);
+  --purple: #A78BFA;
+  --purple-bg: rgba(167, 139, 250, 0.12);
+  --serie-1: #3987e5;
+  --input-bg: rgba(0, 0, 0, 0.22);
+  --input-border: rgba(255, 255, 255, 0.12);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.30);
+  --shadow-pop: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
 @layer base {
-  /* Números alinhados em coluna onde a fonte permitir */
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--fonte-titulo);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+  }
+
   .num {
     font-variant-numeric: tabular-nums;
   }
 
-  /* Foco sempre visível e grosso: quem usa teclado ou leitor de tela precisa
-     achar onde está */
   :focus-visible {
-    outline: 3px solid #3d3480;
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
 
-  /* Toque sem o clarão azul do Android e sem seleção acidental de texto
-     em botões (toque longo) */
   button,
   a {
     -webkit-tap-highlight-color: transparent;
   }
-  button {
-    user-select: none;
+}
+
+/* ─── Componentes (mesmos nomes e medidas do CRM) ──────────────────────── */
+@layer components {
+  .campo {
+    width: 100%;
+    min-height: 40px;
+    padding: 8px 12px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-size: 16px; /* 16px: o iPhone não dá zoom sozinho ao tocar no campo */
+  }
+  .campo:focus-visible {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 8px 16px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .btn-primario {
+    background: var(--accent-strong);
+    color: var(--on-accent);
+  }
+  .btn-primario:hover:not(:disabled) {
+    background: var(--accent-strong-hover);
+  }
+  .btn-secundario {
+    background: var(--surface-raised);
+    border-color: var(--border);
+  }
+  .btn-secundario:hover:not(:disabled) {
+    background: var(--surface-raised-hover);
+  }
+  .btn-fantasma {
+    background: transparent;
+    color: var(--text-secondary);
+  }
+  .btn-fantasma:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  .btn-icone {
+    display: inline-grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .btn-icone:hover:not(:disabled) {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  .cartao {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    padding: 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .cartao > h2 {
+    font-size: 16px;
+  }
+  .cartao-sub {
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  /* Escolha entre poucas opções (os "funis" do CRM) */
+  .segmentos {
+    display: inline-flex;
+    flex-wrap: wrap;
+    padding: 3px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .segmentos > button {
+    min-height: 34px;
+    padding: 4px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .segmentos > button:hover {
+    color: var(--text-primary);
+  }
+  .segmentos > button[aria-pressed="true"] {
+    background: var(--accent-strong);
+    color: var(--on-accent);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 6px 12px;
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .chip:hover:not(:disabled) {
+    color: var(--text-primary);
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--accent-muted);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .kpi-titulo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
+  .kpi-valor {
+    font-family: var(--fonte-titulo);
+    font-size: 28px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .kpi-detalhe {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .medidor {
+    display: block;
+    height: 6px;
+    background: var(--surface-raised);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .medidor > span {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--serie-1);
+  }
+
+  .tabela-rolagem {
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+  }
+  .tabela {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .tabela th,
+  .tabela td {
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  .tabela th {
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .tabela th.num,
+  .tabela td.num {
+    text-align: right;
+  }
+  .tabela tbody tr:last-child td {
+    border-bottom: 0;
+  }
+
+  .legenda-cor {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
   }
 }
 
@@ -32,6 +385,15 @@
   @page {
     size: A4 landscape;
     margin: 10mm;
+  }
+  :root,
+  :root[data-tema] {
+    --bg: #FFFFFF;
+    --surface: #FFFFFF;
+    --border: #D1D5DB;
+    --text-primary: #000000;
+    --text-secondary: #333333;
+    color-scheme: light;
   }
   html,
   body {

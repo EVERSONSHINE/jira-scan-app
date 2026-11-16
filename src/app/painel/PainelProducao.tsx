@@ -77,28 +77,29 @@ export default function PainelProducao() {
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-fundo text-tinta">
 
-      {/* Barra do topo */}
-      <header className="bg-marca text-white px-8 h-[5.5rem] flex items-center gap-6 shrink-0">
-        <Logo className="h-12 w-auto" />
-        <span className="h-10 w-px bg-white/30" aria-hidden />
-        <h1 className="text-[2.6rem] font-bold leading-none">
-          Produção de {m?.nomeMes ?? '…'}
-        </h1>
+      {/* Topo, como o do CRM */}
+      <header className="shrink-0 bg-superficie border-b border-linha px-8 h-[5rem] flex items-center gap-6">
+        <div className="flex items-center gap-3">
+          <Logo className="h-[1.9rem] w-auto text-tinta" />
+          <span className="font-titulo text-[1.9rem] font-bold text-acento">Produção</span>
+        </div>
+        <span className="h-[2.2rem] w-px bg-linha-forte" aria-hidden />
+        <h1 className="text-[2rem] font-semibold">Entregas de {m?.nomeMes ?? '…'}</h1>
         {data && <TrimestreTopo t={data.trimestre} />}
-        <div className="ml-8 text-right leading-tight">
-          <p className="text-[2.2rem] font-bold num">
+        <div className="ml-6 text-right leading-tight">
+          <p className="font-titulo text-[2rem] font-semibold num">
             {agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
           </p>
-          <p className={`text-[1.2rem] ${erro ? 'text-amber-300 font-bold' : 'text-marca-200'}`}>
+          <p className={`text-[1.1rem] ${erro ? 'text-atencao font-semibold' : 'text-tinta-suave'}`}>
             {erro
-              ? `Sem conexão com o Jira${data ? ' · mostrando os últimos dados' : ''}`
+              ? `Sem conexão com o Jira${data ? ' · últimos dados' : ''}`
               : atualizado && `atualizado às ${atualizado}`}
           </p>
         </div>
       </header>
 
       {!data && (
-        <p className="flex-1 grid place-items-center text-[3rem] text-tinta-suave">
+        <p className="flex-1 grid place-items-center text-[2.4rem] text-tinta-suave">
           {erro ? 'Tentando conectar…' : 'Carregando…'}
         </p>
       )}
@@ -106,38 +107,38 @@ export default function PainelProducao() {
       {data && m && (
         <>
           {/* ── Meta do mês ──────────────────────────────────────────────── */}
-          <section aria-label="Meta do mês" className="shrink-0 bg-white border-b-2 border-linha grid grid-cols-[1.15fr_1fr_0.9fr] divide-x-2 divide-linha">
+          <section aria-label="Meta do mês" className="shrink-0 px-8 pt-5 grid grid-cols-3 gap-5">
             <BlocoCaixilhos m={m} />
             <BlocoValor m={m} />
             <BlocoRitmo m={m} />
           </section>
 
           {/* ── Próximas entregas ────────────────────────────────────────── */}
-          <section aria-label="Próximas entregas" className="flex-1 min-h-0 flex flex-col px-8 pt-4">
-            <div className="flex items-baseline gap-4 pb-2">
-              <h2 className="text-[2.2rem] font-bold">Próximas entregas</h2>
-              <span className="text-[1.6rem] text-tinta-suave">
+          <section aria-label="Próximas entregas" className="flex-1 min-h-0 flex flex-col px-8 pt-5">
+            <div className="flex items-baseline gap-4 pb-3">
+              <h2 className="text-[1.8rem]">Próximas entregas</h2>
+              <span className="text-[1.35rem] text-tinta-suave">
                 {entregas.length} {entregas.length === 1 ? 'obra' : 'obras'} na fábrica
               </span>
               {paginas > 1 && (
                 <span className="ml-auto flex items-center gap-2" aria-label={`Página ${pagina + 1} de ${paginas}`}>
                   {Array.from({ length: paginas }, (_, i) => (
-                    <span key={i} className={`h-4 rounded-full ${i === pagina ? 'w-10 bg-marca' : 'w-4 bg-linha'}`} />
+                    <span key={i} className={`h-[0.7rem] rounded-full ${i === pagina ? 'w-[2.2rem] bg-acento' : 'w-[0.7rem] bg-linha-forte'}`} />
                   ))}
                 </span>
               )}
             </div>
 
             {entregas.length === 0 ? (
-              <p className="py-10 text-[2.4rem] text-tinta-suave">Nenhuma obra com data de entrega na fábrica.</p>
+              <p className="py-10 text-[2rem] text-tinta-suave">Nenhuma obra com data de entrega na fábrica.</p>
             ) : (
-              <ol className="flex flex-col">
+              <ol className="flex flex-col gap-[0.6rem]">
                 {visiveis.map((o) => <LinhaObra key={o.key} o={o} />)}
               </ol>
             )}
 
             {data.semData > 0 && (
-              <p className="py-3 text-[1.4rem] text-tinta-suave">
+              <p className="pt-3 text-[1.25rem] text-tinta-suave">
                 {data.semData} {data.semData === 1 ? 'obra sem data de entrega não aparece' : 'obras sem data de entrega não aparecem'} aqui.
               </p>
             )}
@@ -153,24 +154,24 @@ export default function PainelProducao() {
 /** OUT ✓ · NOV 34% · DEZ — os meses que contam para a bonificação */
 function TrimestreTopo({ t }: { t: PainelData['trimestre'] }) {
   return (
-    <div className="ml-auto flex items-center gap-2.5" aria-label={`Trimestre: ${t.batidos} de 3 meses batidos`}>
-      <span className="text-[1.5rem] text-marca-200 mr-1">Trimestre</span>
+    <div className="ml-auto flex items-center gap-2" aria-label={`Trimestre: ${t.batidos} de 3 meses batidos`}>
+      <span className="text-[1.3rem] text-tinta-suave mr-1">Trimestre</span>
       {t.meses.map((m) => {
         const nome = m.nomeMes.slice(0, 3).toUpperCase();
         const pct = m.valorProduzido !== null && m.metaValor > 0
           ? Math.round((m.valorProduzido / m.metaValor) * 100) : null;
         const cls = m.batida === true
-          ? 'bg-emerald-600 text-white'
+          ? 'bg-ok-bg text-ok'
           : m.batida === false
-            ? 'bg-red-700 text-white'
+            ? 'bg-perigo-bg text-perigo'
             : m.situacao === 'em-andamento'
-              ? 'bg-white text-marca'
-              : 'border-2 border-white/30 text-marca-200';
+              ? 'bg-acento-suave text-acento'
+              : 'bg-elevada text-tinta-suave';
         return (
-          <span key={m.mes} className={`h-12 rounded-xl px-3 flex items-center gap-1.5 text-[1.6rem] font-bold ${cls}`}>
+          <span key={m.mes} className={`h-[2.6rem] rounded-full px-[1rem] flex items-center gap-1.5 text-[1.35rem] font-semibold ${cls}`}>
             {nome}
-            {m.batida === true && <Icone nome="check" className="w-7 h-7" titulo="batida" />}
-            {m.batida === false && <Icone nome="fechar" className="w-7 h-7" titulo="não batida" />}
+            {m.batida === true && <Icone nome="check" className="w-[1.4rem] h-[1.4rem]" titulo="batida" />}
+            {m.batida === false && <Icone nome="fechar" className="w-[1.4rem] h-[1.4rem]" titulo="não batida" />}
             {m.batida === null && m.situacao === 'em-andamento' && pct !== null && <span className="num">{pct}%</span>}
           </span>
         );
@@ -181,37 +182,42 @@ function TrimestreTopo({ t }: { t: PainelData['trimestre'] }) {
 
 // ─── Faixa da meta ───────────────────────────────────────────────────────────
 
-function Barra({ fracao, cor, marca }: { fracao: number; cor: string; marca?: number }) {
+/** Medidor fino do CRM, com a marca de onde deveríamos estar hoje */
+function Medidor({ fracao, cor, marca }: { fracao: number; cor: string; marca?: number }) {
   return (
-    <div className="relative h-6 rounded-full bg-slate-200">
+    <div className="relative mt-3 h-[0.6rem] rounded-full bg-elevada">
       <div className={`h-full rounded-full ${cor}`} style={{ width: `${Math.min(100, Math.max(0, fracao * 100))}%` }} />
       {marca !== undefined && marca > 0 && marca < 1 && (
-        // Onde deveríamos estar hoje, dividindo o mês por igual
-        <div className="absolute -top-2 -bottom-2 w-1.5 rounded bg-marca" style={{ left: `calc(${marca * 100}% - 3px)` }} />
+        <div className="absolute -top-[0.35rem] -bottom-[0.35rem] w-[0.2rem] rounded bg-tinta" style={{ left: `${marca * 100}%` }} />
       )}
     </div>
   );
 }
+
+const KPI = 'kpi !px-6 !py-4 !gap-1';
+const KPI_TITULO = 'text-[1.35rem] font-semibold text-tinta-suave';
+const KPI_VALOR = 'font-titulo text-[3.4rem] font-bold leading-[1.1] num';
+const KPI_DETALHE = 'text-[1.3rem] text-tinta-suave';
 
 function BlocoCaixilhos({ m }: { m: PainelData['meta'] }) {
   const fr = m.caixilhosTotal > 0 ? m.caixilhosProntos / m.caixilhosTotal : 0;
   const esperado = m.caixilhosTotal > 0 ? m.esperadoHoje / m.caixilhosTotal : undefined;
   const diferenca = m.caixilhosProntos - m.esperadoHoje;
   return (
-    <div className="px-8 py-4 flex flex-col gap-3">
-      <p className="text-[1.6rem] text-tinta-suave">Caixilhos com entrega em {m.nomeMes}</p>
-      <p className="leading-none">
-        <span className="text-[5rem] font-bold num">{nf(m.caixilhosProntos)}</span>
-        <span className="text-[2.4rem] text-tinta-suave num"> de {nf(m.caixilhosTotal)} prontos</span>
+    <div className={KPI}>
+      <span className={KPI_TITULO}>Caixilhos com entrega em {m.nomeMes}</span>
+      <p className={KPI_VALOR}>
+        {nf(m.caixilhosProntos)}
+        <span className="text-[1.8rem] font-semibold text-tinta-suave"> de {nf(m.caixilhosTotal)} prontos</span>
       </p>
-      <Barra fracao={fr} cor="bg-emerald-600" marca={esperado} />
+      <Medidor fracao={fr} cor="bg-ok" marca={esperado} />
       {m.caixilhosTotal > 0 && m.diasUteis.passados > 0 && (
-        <p className={`text-[1.6rem] font-bold ${diferenca >= 0 ? 'text-emerald-800' : 'text-red-700'}`}>
-          {diferenca >= 0
-            ? `${nf(diferenca)} à frente do calendário`
-            : `${nf(-diferenca)} atrás do calendário`}
-          <span className="font-normal text-tinta-suave"> · hoje deveriam ser {nf(m.esperadoHoje)}</span>
-        </p>
+        <span className={`${KPI_DETALHE} mt-2`}>
+          <b className={diferenca >= 0 ? 'text-ok' : 'text-perigo'}>
+            {diferenca >= 0 ? `${nf(diferenca)} à frente` : `${nf(-diferenca)} atrás`} do calendário
+          </b>
+          {' · '}hoje deveriam ser {nf(m.esperadoHoje)}
+        </span>
       )}
     </div>
   );
@@ -220,20 +226,17 @@ function BlocoCaixilhos({ m }: { m: PainelData['meta'] }) {
 function BlocoValor({ m }: { m: PainelData['meta'] }) {
   const fr = m.metaValor > 0 ? m.valorProduzido / m.metaValor : 0;
   return (
-    <div className="px-8 py-4 flex flex-col gap-3">
-      <p className="text-[1.6rem] text-tinta-suave">Valor produzido · meta {reaisCurto(m.metaValor)}</p>
-      <p className="leading-none">
-        <span className="text-[5rem] font-bold num">{reaisCurto(m.valorProduzido)}</span>
-        <span className="text-[2.4rem] text-tinta-suave num"> {Math.round(fr * 100)}%</span>
+    <div className={KPI}>
+      <span className={KPI_TITULO}>Valor produzido · meta {reaisCurto(m.metaValor)}</span>
+      <p className={KPI_VALOR}>
+        {reaisCurto(m.valorProduzido)}
+        <span className="text-[1.8rem] font-semibold text-tinta-suave"> {Math.round(fr * 100)}%</span>
       </p>
-      <Barra fracao={fr} cor="bg-marca-600" />
-      <p className="text-[1.6rem] whitespace-nowrap">
-        <span className="text-tinta-suave">Obras do mês somam </span>
-        <b className="num">{reaisCurto(m.valorPrevisto)}</b>
-        {m.obrasSemValor > 0 && (
-          <span className="text-amber-800 font-bold"> · {m.obrasSemValor} sem valor</span>
-        )}
-      </p>
+      <Medidor fracao={fr} cor="bg-acento" />
+      <span className={`${KPI_DETALHE} mt-2 whitespace-nowrap`}>
+        Obras do mês somam <b className="text-tinta num">{reaisCurto(m.valorPrevisto)}</b>
+        {m.obrasSemValor > 0 && <b className="text-atencao"> · {m.obrasSemValor} sem valor</b>}
+      </span>
     </div>
   );
 }
@@ -241,28 +244,28 @@ function BlocoValor({ m }: { m: PainelData['meta'] }) {
 function BlocoRitmo({ m }: { m: PainelData['meta'] }) {
   const faltam = Math.max(m.caixilhosTotal - m.caixilhosProntos, 0);
   return (
-    <div className="px-8 py-4 flex flex-col gap-2">
-      <p className="text-[1.6rem] text-tinta-suave">Para fechar o mês</p>
+    <div className={KPI}>
+      <span className={KPI_TITULO}>Para fechar o mês</span>
       {faltam === 0 && m.caixilhosTotal > 0 ? (
-        <p className="flex items-center gap-3 text-[3rem] font-bold text-emerald-800 leading-tight">
-          <Icone nome="check" className="w-14 h-14" />
+        <p className="flex items-center gap-3 font-titulo text-[2.4rem] font-semibold text-ok leading-tight">
+          <Icone nome="check" className="w-[2.6rem] h-[2.6rem]" />
           Caixilhos do mês prontos
         </p>
       ) : (
         <>
-          <p className="leading-none">
-            <span className="text-[5rem] font-bold num">{nf(m.porDia)}</span>
-            <span className="text-[2.4rem] text-tinta-suave"> por dia</span>
+          <p className={KPI_VALOR}>
+            {nf(m.porDia)}
+            <span className="text-[1.8rem] font-semibold text-tinta-suave"> por dia útil</span>
           </p>
-          <p className="text-[1.6rem] num">
-            faltam <b>{nf(faltam)}</b> em <b>{m.diasUteis.restantes}</b> {m.diasUteis.restantes === 1 ? 'dia útil' : 'dias úteis'}
-          </p>
+          <span className={`${KPI_DETALHE} mt-2 num`}>
+            faltam <b className="text-tinta">{nf(faltam)}</b> em <b className="text-tinta">{m.diasUteis.restantes}</b> {m.diasUteis.restantes === 1 ? 'dia útil' : 'dias úteis'}
+          </span>
         </>
       )}
       {m.atrasadasAnteriores.caixilhosFaltando > 0 && (
-        <p className="text-[1.5rem] font-bold text-red-700 num">
+        <span className="text-[1.3rem] font-semibold text-perigo num">
           + {nf(m.atrasadasAnteriores.caixilhosFaltando)} atrasados de meses anteriores
-        </p>
+        </span>
       )}
     </div>
   );
@@ -278,52 +281,54 @@ function LinhaObra({ o }: { o: ObraProd }) {
   const urgente = dias >= 0 && dias <= 2 && !pronta;
 
   const corData = atrasada
-    ? 'bg-red-700 text-white'
+    ? 'bg-perigo-bg text-perigo'
     : urgente
-      ? 'bg-amber-300 text-tinta'
-      : 'bg-white text-tinta';
+      ? 'bg-atencao-bg text-atencao'
+      : 'bg-elevada text-tinta';
 
   return (
-    <li className="h-[6.3rem] grid grid-cols-[13.5rem_1fr_26rem_23rem] items-center gap-6 border-b-2 border-linha py-2">
+    <li className="h-[6.1rem] grid grid-cols-[12.5rem_1fr_25rem_22rem] items-center gap-6 rounded-[0.8rem] bg-superficie border border-linha shadow-cartao px-3">
       {/* Data de entrega */}
-      <div className={`h-full rounded-xl px-4 flex flex-col justify-center ${corData} ${!atrasada && !urgente ? 'border-2 border-linha' : ''}`}>
-        <p className="text-[2.2rem] font-bold leading-none num">
-          <span className="text-[1.6rem]">{diaSemana(o.duedate!)}</span> {dataCurta(o.duedate)}
+      <div className={`h-[4.9rem] rounded-[0.6rem] px-4 flex flex-col justify-center ${corData}`}>
+        <p className="font-titulo text-[1.9rem] font-semibold leading-none num">
+          <span className="text-[1.3rem]">{diaSemana(o.duedate!)}</span> {dataCurta(o.duedate)}
         </p>
-        <p className="text-[1.5rem] font-bold leading-tight mt-1">
+        <p className="text-[1.25rem] font-semibold leading-tight mt-1">
           {pronta && dias < 0 ? 'data passou' : prazoRelativo(dias)}
         </p>
       </div>
 
       {/* Obra */}
       <div className="min-w-0">
-        <p className="text-[2.3rem] font-bold leading-tight truncate">{o.nome}</p>
-        {o.documento && <p className="text-[1.5rem] leading-tight text-tinta-suave num">Pedido {o.documento}</p>}
+        <p className="text-[1.9rem] font-semibold leading-tight truncate">{o.nome}</p>
+        {o.documento && <p className="text-[1.25rem] text-tinta-suave num">Pedido {o.documento}</p>}
       </div>
 
       {/* Andamento dos caixilhos */}
-      <div className="flex flex-col justify-center gap-2.5">
+      <div className="flex flex-col justify-center gap-2">
         {pronta ? (
-          <p className="flex items-center gap-2 text-[2rem] font-bold text-emerald-800">
-            <Icone nome="check" className="w-10 h-10" />
+          <span className="self-start inline-flex items-center gap-2 rounded-full bg-ok-bg text-ok px-4 py-1 text-[1.4rem] font-semibold">
+            <Icone nome="check" className="w-[1.5rem] h-[1.5rem]" />
             Pronta · falta expedir
-          </p>
+          </span>
         ) : c.total === 0 ? (
-          <p className="text-[1.8rem] text-tinta-suave">Sem caixilhos cadastrados</p>
+          <p className="text-[1.4rem] text-tinta-suave">Sem caixilhos cadastrados</p>
         ) : (
           <>
             <p className="flex items-baseline justify-between gap-3 leading-none num">
               <span>
-                <span className="text-[2.6rem] font-bold">{c.prontos}</span>
-                <span className="text-[1.7rem] text-tinta-suave"> de {c.total} prontos</span>
+                <span className="font-titulo text-[1.9rem] font-semibold">{c.prontos}</span>
+                <span className="text-[1.35rem] text-tinta-suave"> de {c.total} prontos</span>
               </span>
               {c.emProducao > 0 && (
-                <span className="text-[1.5rem] font-bold text-amber-900">{c.emProducao} em produção</span>
+                <span className="rounded-full bg-atencao-bg text-atencao px-3 text-[1.15rem] font-semibold">
+                  {c.emProducao} em andamento
+                </span>
               )}
             </p>
-            <div className="flex h-4 rounded-full overflow-hidden bg-slate-200 gap-[3px]" aria-hidden>
-              {c.prontos > 0 && <div className="bg-emerald-600" style={{ width: `${(c.prontos / c.total) * 100}%` }} />}
-              {c.emProducao > 0 && <div className="bg-amber-500" style={{ width: `${(c.emProducao / c.total) * 100}%` }} />}
+            <div className="flex h-[0.6rem] rounded-full overflow-hidden bg-elevada gap-[2px]" aria-hidden>
+              {c.prontos > 0 && <div className="bg-ok" style={{ width: `${(c.prontos / c.total) * 100}%` }} />}
+              {c.emProducao > 0 && <div className="bg-atencao" style={{ width: `${(c.emProducao / c.total) * 100}%` }} />}
             </div>
           </>
         )}
@@ -332,16 +337,16 @@ function LinhaObra({ o }: { o: ObraProd }) {
       {/* Onde estão as peças */}
       <div className="min-w-0 max-h-full flex flex-wrap content-center gap-1.5 overflow-hidden">
         {o.locais.length === 0 ? (
-          <span className="text-[1.5rem] text-tinta-suave">sem local</span>
+          <span className="text-[1.25rem] text-tinta-suave">sem local</span>
         ) : (
           o.locais.slice(0, 7).map((l) => (
-            <span key={l} className="rounded-lg bg-cyan-800 text-white px-2.5 py-0.5 text-[1.6rem] font-bold num leading-tight">
+            <span key={l} className="rounded-full bg-roxo-bg text-roxo px-3 py-0.5 text-[1.3rem] font-semibold num leading-tight">
               {l}
             </span>
           ))
         )}
         {o.locais.length > 7 && (
-          <span className="text-[1.6rem] font-bold text-cyan-900 self-center">+{o.locais.length - 7}</span>
+          <span className="text-[1.3rem] font-semibold text-roxo self-center">+{o.locais.length - 7}</span>
         )}
       </div>
     </li>

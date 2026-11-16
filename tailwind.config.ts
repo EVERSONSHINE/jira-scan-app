@@ -1,5 +1,12 @@
 import type { Config } from 'tailwindcss';
 
+/**
+ * Cores = variáveis CSS do globals.css, as mesmas do Shine CRM. O tema claro
+ * e o escuro trocam os valores das variáveis; as classes não mudam.
+ * (Por serem variáveis, modificadores de opacidade como bg-x/50 não valem.)
+ */
+const v = (nome: string) => `var(--${nome})`;
+
 const config: Config = {
   content: [
     './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
@@ -10,28 +17,31 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Azul-marinho do logo (#120c30) e os tons que saem dele
-        marca: {
-          DEFAULT: '#120c30',
-          800: '#1d1647',
-          700: '#2b2363',
-          600: '#3d3480',
-          200: '#d6d3e8',
-          100: '#e9e7f3',
-          50: '#f4f3f9',
-        },
-        // Fundo levemente quente: menos ofuscante que branco puro no galpão
-        fundo: '#f3f2ee',
-        // Texto: o próprio marinho da marca (15:1 sobre branco)
-        tinta: {
-          DEFAULT: '#120c30',
-          // Texto secundário — 8,9:1 sobre branco, 8:1 sobre o fundo
-          suave: '#47435c',
-        },
-        linha: '#d8d6e0',
+        fundo: v('bg'),
+        superficie: { DEFAULT: v('surface'), hover: v('surface-hover') },
+        elevada: { DEFAULT: v('surface-raised'), hover: v('surface-raised-hover') },
+        linha: { DEFAULT: v('border'), forte: v('border-strong') },
+        tinta: { DEFAULT: v('text-primary'), suave: v('text-secondary') },
+        acento: { DEFAULT: v('accent'), forte: v('accent-strong'), hover: v('accent-strong-hover'), suave: v('accent-muted') },
+        ok: { DEFAULT: v('success'), bg: v('success-bg') },
+        atencao: { DEFAULT: v('warning'), bg: v('warning-bg') },
+        perigo: { DEFAULT: v('danger'), bg: v('danger-bg') },
+        info: { DEFAULT: v('info'), bg: v('info-bg') },
+        roxo: { DEFAULT: v('purple'), bg: v('purple-bg') },
+        serie: v('serie-1'),
       },
       fontFamily: {
-        sans: ['var(--fonte)', 'system-ui', 'sans-serif'],
+        sans: [v('fonte-corpo'), 'system-ui', 'sans-serif'],
+        titulo: [v('fonte-titulo'), 'system-ui', 'sans-serif'],
+      },
+      borderRadius: {
+        sm2: '8px',
+        md2: '10px',
+        lg2: '12px',
+      },
+      boxShadow: {
+        cartao: v('shadow-card'),
+        pop: v('shadow-pop'),
       },
     },
   },

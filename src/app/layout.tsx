@@ -1,36 +1,44 @@
 import type { Metadata, Viewport } from 'next';
-import { Atkinson_Hyperlegible } from 'next/font/google';
+import { Outfit, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 
-/**
- * Atkinson Hyperlegible: desenhada pelo Braille Institute para baixa visão —
- * letras que não se confundem (I/l/1, O/0, B/8) e aberturas largas.
- */
-const fonte = Atkinson_Hyperlegible({
-  weight: ['400', '700'],
+// As fontes do Shine CRM: Outfit nos títulos, Plus Jakarta Sans no texto
+const titulo = Outfit({
+  weight: ['500', '600', '700'],
   subsets: ['latin', 'latin-ext'],
-  variable: '--fonte',
+  variable: '--fonte-titulo',
+  display: 'swap',
+});
+const corpo = Plus_Jakarta_Sans({
+  weight: ['400', '500', '600', '700'],
+  subsets: ['latin', 'latin-ext'],
+  variable: '--fonte-corpo',
   display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: 'Shine Windows — Produção',
+  title: 'Shine Produção',
   description: 'Leitura de etiquetas, localização das peças e acompanhamento da produção',
 };
 
-// Sem maximumScale: quem enxerga pouco precisa poder ampliar com os dedos.
-// O zoom automático do iPhone ao tocar num campo é evitado com letra ≥ 16px
-// nos campos, não travando o zoom.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#120c30',
 };
+
+/**
+ * Aplica o tema salvo antes de desenhar a página, para não piscar (igual ao
+ * CRM). Sem escolha salva, o CSS segue o tema do aparelho.
+ */
+const TEMA = `(function(){try{var t=JSON.parse(localStorage.getItem('producao:tema'));if(t)document.documentElement.dataset.tema=t;}catch(e){}})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR" className={fonte.variable}>
-      <body className="bg-fundo text-tinta min-h-screen font-sans antialiased">{children}</body>
+    <html lang="pt-BR" className={`${titulo.variable} ${corpo.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: TEMA }} />
+      </head>
+      <body className="min-h-screen font-sans antialiased">{children}</body>
     </html>
   );
 }
