@@ -1,3 +1,43 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+  /* Números alinhados em coluna em todo o sistema: contagens, %, medidas */
+  body { font-variant-numeric: tabular-nums; }
+
+  p, li, dd { text-wrap: pretty; }
+  h1, h2, h3 { text-wrap: balance; }
+
+  ::selection { background: #d4d0e8; color: #120c30; }
+
+  :focus-visible {
+    outline: 2px solid #120c30;
+    outline-offset: 2px;
+  }
+
+  input, select, textarea { caret-color: #120c30; }
+  input::placeholder, textarea::placeholder { color: theme('colors.slate.500'); opacity: 1; }
+
+  * { scrollbar-width: thin; scrollbar-color: theme('colors.slate.300') transparent; }
+
+  /* Impressão (relatório do PCP): papel branco, cores dos selos preservadas */
+  @media print {
+    @page { size: A4; margin: 10mm; }
+    body { background: white; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead { display: table-header-group; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
+  }
+}

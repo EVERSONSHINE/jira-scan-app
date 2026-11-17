@@ -1,7 +1,8 @@
 import {
-  jiraFetch, searchAllIssues, listEpicSubtasks, getExpeditedAt, emLotes,
+  jiraFetch, searchAllIssues, listEpicSubtasks, getExpeditedAt, emLotes, CF,
   type JiraIssueLite,
 } from './jira';
+import { marcosDaObra, registrarArquivadas } from './obras';
 import { canonicalStatus } from './status';
 
 // ─── Anotação dos expedidos que saem da busca ────────────────────────────────
@@ -114,7 +115,7 @@ export async function arquivarExpedidos(
     opts.somente
       ? `key = "${opts.somente}" AND issuetype = Epic`
       : `project = "${project}" AND issuetype = Epic AND status = "Expedido" ORDER BY key ASC`,
-    ['summary', 'status'],
+    ['summary', 'status', 'duedate', 'created', 'updated', CF.valor, CF.inicio],
   );
 
   for (const e of epicos) {
@@ -163,6 +164,23 @@ export async function arquivarExpedidos(
         } catch (err) {
           anotados = 0;
           res.erros.push({ epico: e.key, erro: `arquivado, mas a anotação dos expedidos falhou: ${String(err).slice(0, 200)}` });
+        }
+        // A meta do mês e os indicadores da diretoria leem a obra daqui em
+        // diante, já que a busca do Jira deixa de enxergá-la
+        try {
+          const f = e.fields;
+          const valor = f[CF.valor];
+          await registrarArquivadas(project, [{
+            valor: typeof valor === 'number' ? valor : null,
+            duedate: (f.duedate as string | null) ?? null,
+            inicio: (f[CF.inicio] as string | null) ?? null,
+            created: String(f.created ?? ''),
+            quadros: subs.length,
+            caixilhos: tasks.length,
+            marcos: await marcosDaObra(e.key, 'Expedido', String(f.updated ?? '')),
+          }]);
+        } catch (err) {
+          res.erros.push({ epico: e.key, erro: `arquivado, mas o registro da obra para os indicadores falhou: ${String(err).slice(0, 200)}` });
         }
       }
       res.arquivados.push({ epico: e.key, resumo, tickets: keys.length, expedidosAnotados: anotados });

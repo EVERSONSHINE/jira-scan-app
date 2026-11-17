@@ -1,7 +1,12 @@
 'use client';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import { STATUS_ORDER, canonicalStatus } from '@/lib/status';
+import { STATUS_ORDER, canonicalStatus, stageLabel } from '@/lib/status';
+import {
+  AlertTriangle, Camera, Check, ChevronRight, Loader2, MapPin, RotateCcw, Ruler, ScanLine, Search,
+} from 'lucide-react';
+import AppShell, { Button, Panel } from '@/components/AppShell';
+import StatusBadge, { STAGE_BUTTON, StageDot } from '@/components/StatusBadge';
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
@@ -51,32 +56,7 @@ interface ResultadoLote {
   motivo?: string;
 }
 
-// ─── Helpers de status ────────────────────────────────────────────────────────
-
-const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  'Tarefas Pendentes': { bg: 'bg-slate-100',  text: 'text-slate-700',  border: 'border-slate-300' },
-  'Em Andamento':      { bg: 'bg-amber-100',  text: 'text-amber-700',  border: 'border-amber-400' },
-  'Concluido':         { bg: 'bg-emerald-100',text: 'text-emerald-700',border: 'border-emerald-400' },
-  'Expedido':          { bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-400'   },
-};
-
-const STATUS_ACTIVE: Record<string, string> = {
-  'Tarefas Pendentes': 'bg-slate-500  text-white border-slate-500',
-  'Em Andamento':      'bg-amber-500  text-white border-amber-500',
-  'Concluido':         'bg-emerald-500 text-white border-emerald-500',
-  'Expedido':          'bg-blue-600   text-white border-blue-600',
-};
-
 const STATUSES: readonly string[] = STATUS_ORDER;
-
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLES[status] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300' };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${s.bg} ${s.text} ${s.border}`}>
-      {status}
-    </span>
-  );
-}
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
@@ -295,184 +275,177 @@ export default function Home() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  const emLoteLabel = emLoteAtivo && (
+    <span className="ml-2 font-medium text-amber-800">em lote · {lote?.subtasks.length} subtasks</span>
+  );
+
   return (
-    <div className="max-w-lg mx-auto min-h-screen flex flex-col">
+    <AppShell
+      title="Leitura"
+      width="narrow"
+      actions={issue && (
+        <Button variant="ghost" onClick={handleClear}>
+          <RotateCcw className="h-4 w-4" strokeWidth={2} /> Nova leitura
+        </Button>
+      )}
+    >
+      <div className="space-y-4">
 
-      {/* Header */}
-      <header className="bg-slate-800 text-white px-4 py-4 flex items-center justify-between sticky top-0 z-10 shadow">
-        <div>
-          <h1 className="font-bold text-lg leading-tight">Shine Windows</h1>
-          <p className="text-slate-400 text-xs">Controle de Produção</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-          {issue ? (
-            <button onClick={handleClear} className="text-slate-300 text-sm underline">
-              Nova leitura
-            </button>
-          ) : (
-            <>
-              <a href="/quadros" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📦 Quadros
-              </a>
-              {/* Tela da TV: alterna entre resumo e expedição sozinha */}
-              <a href="/painel" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📺 Painel
-              </a>
-              <a href="/expedicao" className="text-slate-300 text-xs underline whitespace-nowrap">
-                🚚 Expedição
-              </a>
-              <a href="/resumo" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📊 Resumo
-              </a>
-            </>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 p-4 space-y-4">
-
-        {/* Tabs (apenas quando não há issue carregada) */}
+        {/* Escanear ou buscar (só sem quadro carregado) */}
         {!issue && !loadingIssue && (
           <>
-            <div className="flex rounded-xl overflow-hidden border border-slate-300 bg-white">
-              {(['scan', 'search'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`flex-1 py-3 text-sm font-medium transition-colors ${
-                    tab === t ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {t === 'scan' ? '📷  Escanear QR' : '🔍  Buscar'}
-                </button>
-              ))}
+            <div className="grid grid-cols-2 rounded-xl bg-slate-200/70 p-1" role="tablist" aria-label="Como encontrar o quadro">
+              {(['scan', 'search'] as const).map((t) => {
+                const Icon = t === 'scan' ? ScanLine : Search;
+                return (
+                  <button
+                    key={t}
+                    role="tab"
+                    aria-selected={tab === t}
+                    onClick={() => setTab(t)}
+                    className={`flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition-colors ${
+                      tab === t ? 'bg-white text-slate-900 shadow-card' : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" strokeWidth={2} />
+                    {t === 'scan' ? 'Escanear QR' : 'Buscar'}
+                  </button>
+                );
+              })}
             </div>
 
-            {/* Aba Scan */}
             {tab === 'scan' && (
-              <div className="bg-white rounded-2xl p-6 text-center shadow-sm border border-slate-200">
-                <div className="text-6xl mb-4">📷</div>
-                <p className="text-slate-600 text-sm mb-5">
-                  Aponte a câmera para o QR code da etiqueta do quadro.
-                </p>
+              <Panel className="p-4">
+                {/* O visor é o botão: tocar em qualquer ponto dele abre a câmera */}
                 <button
                   onClick={() => setShowScanner(true)}
-                  className="w-full bg-slate-800 text-white py-4 rounded-xl font-semibold text-lg active:bg-slate-700 transition-colors"
+                  className="group relative flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-lg bg-slate-50 text-slate-600 transition-colors hover:bg-brand-50 active:bg-brand-100"
                 >
-                  Iniciar Scanner
+                  <svg viewBox="0 0 100 75" className="pointer-events-none absolute inset-4 z-0 h-[calc(100%-2rem)] w-[calc(100%-2rem)] text-brand" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" preserveAspectRatio="none" aria-hidden>
+                    <path d="M2 14V4a2 2 0 0 1 2-2h12M84 2h12a2 2 0 0 1 2 2v10M98 61v10a2 2 0 0 1-2 2H84M16 73H4a2 2 0 0 1-2-2V61" vectorEffect="non-scaling-stroke" strokeWidth="3" />
+                  </svg>
+                  <span className="relative z-10 flex flex-col items-center gap-2">
+                    <Camera className="h-9 w-9 text-brand transition-transform group-active:scale-95" strokeWidth={1.5} />
+                    <span className="text-base font-semibold text-slate-900">Toque para abrir a câmera</span>
+                    <span className="max-w-[16rem] text-center text-sm">Aponte para o QR code da etiqueta do quadro.</span>
+                  </span>
                 </button>
-              </div>
+              </Panel>
             )}
 
-            {/* Aba Buscar */}
             {tab === 'search' && (
-              <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-3">
-                <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-slate-400">
-                  <span className="px-3 py-3 bg-slate-100 text-slate-500 font-mono text-sm border-r border-slate-300 select-none whitespace-nowrap">
+              <Panel className="space-y-3 p-4">
+                <label htmlFor="busca-quadro" className="text-sm font-medium text-slate-700">Número do quadro</label>
+                <div className="flex h-12 items-center overflow-hidden rounded-lg border border-slate-300 bg-white focus-within:border-brand focus-within:ring-1 focus-within:ring-brand">
+                  <span className="flex h-full select-none items-center border-r border-slate-200 bg-slate-50 px-3 font-mono text-sm text-slate-600">
                     PROJ-
                   </span>
                   <input
+                    id="busca-quadro"
                     type="number"
                     inputMode="numeric"
                     placeholder="184"
                     value={searchQuery.replace(/^PROJ-/i, '')}
                     onChange={(e) => handleSearchChange(e.target.value ? `PROJ-${e.target.value}` : '')}
-                    className="flex-1 px-3 py-3 text-sm outline-none bg-white"
+                    className="h-full flex-1 bg-white px-3 text-base outline-none"
                   />
                 </div>
                 {searching && (
-                  <p className="text-center text-slate-400 text-sm py-2">Buscando…</p>
+                  <p className="flex items-center justify-center gap-2 py-2 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Buscando…
+                  </p>
                 )}
                 {searchResults.length > 0 && (
-                  <ul className="divide-y divide-slate-100">
+                  <ul className="-mx-2 divide-y divide-slate-100">
                     {searchResults.map((r) => (
                       <li key={r.key}>
                         <button
                           onClick={() => { setSearchQuery(''); setSearchResults([]); loadIssue(r.key); }}
-                          className="w-full text-left px-2 py-3 hover:bg-slate-50 active:bg-slate-100 rounded-lg"
+                          className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left hover:bg-slate-50 active:bg-slate-100"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono font-bold text-slate-800 text-sm">{r.key}</span>
-                            <StatusBadge status={r.status} />
-                          </div>
-                          <p className="text-slate-500 text-xs mt-0.5 truncate">{r.summary}</p>
-                          {r.parent && <p className="text-slate-400 text-xs">Task: {r.parent}</p>}
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-sm font-semibold text-slate-900">{r.key}</span>
+                              <StatusBadge status={r.status} />
+                            </span>
+                            <span className="mt-0.5 block truncate text-sm text-slate-600">{r.summary}</span>
+                            {r.parent && <span className="block text-xs text-slate-500">Task {r.parent}</span>}
+                          </span>
+                          <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                         </button>
                       </li>
                     ))}
                   </ul>
                 )}
-              </div>
+              </Panel>
             )}
           </>
         )}
 
-        {/* Loading */}
+        {/* Carregando */}
         {loadingIssue && (
-          <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-slate-200">
-            <div className="text-4xl animate-spin mb-3">⏳</div>
-            <p className="text-slate-500 text-sm">Carregando quadro…</p>
-          </div>
+          <Panel className="flex flex-col items-center gap-3 px-6 py-14 text-sm text-slate-600">
+            <Loader2 className="h-6 w-6 animate-spin text-brand" />
+            Carregando quadro…
+          </Panel>
         )}
 
-        {/* Painel do Issue */}
+        {/* Quadro lido */}
         {issue && !loadingIssue && (
-          <div className="space-y-4">
-
-            {/* Card de identificação */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="bg-slate-800 px-4 py-3 flex items-center justify-between">
-                <span className="font-mono font-bold text-white text-lg">{issue.key}</span>
-                <StatusBadge status={issue.status} />
-              </div>
-              <div className="px-4 py-3 space-y-1 text-sm">
-                <p className="font-semibold text-slate-800">{issue.summary}</p>
-                {issue.parent && <p className="text-slate-500 text-xs">Task: {issue.parent}</p>}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-xs text-slate-600">
-                  {issue.cliente   && <span><span className="font-medium">Cliente:</span> {issue.cliente}</span>}
-                  {issue.documento && <span><span className="font-medium">Doc:</span> {issue.documento}</span>}
-                  {issue.tipo      && <span><span className="font-medium">Tipo:</span> {issue.tipo}</span>}
-                  {issue.modelo    && <span><span className="font-medium">Modelo:</span> {issue.modelo}</span>}
-                  {(issue.largura || issue.altura) && (
-                    <span className="col-span-2 font-semibold text-slate-700">
-                      📐 {issue.largura} × {issue.altura} mm
-                    </span>
-                  )}
+          <>
+            <Panel className="overflow-hidden">
+              <div className="flex items-start justify-between gap-3 px-4 pb-3 pt-4">
+                <div className="min-w-0">
+                  <p className="font-mono text-2xl font-semibold tracking-tight text-slate-900">{issue.key}</p>
+                  <p className="mt-0.5 text-sm font-medium text-slate-700">{issue.summary}</p>
                 </div>
+                <StatusBadge status={issue.status} size="md" />
               </div>
-            </div>
+              <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1.5 border-t border-slate-100 px-4 py-3 text-sm">
+                {issue.cliente   && <><dt className="text-slate-500">Cliente</dt><dd className="font-medium text-slate-900">{issue.cliente}</dd></>}
+                {issue.documento && <><dt className="text-slate-500">Documento</dt><dd className="font-medium text-slate-900">{issue.documento}</dd></>}
+                {issue.modelo    && <><dt className="text-slate-500">Modelo</dt><dd className="font-medium text-slate-900">{issue.modelo}</dd></>}
+                {issue.tipo      && <><dt className="text-slate-500">Tipo</dt><dd className="font-medium text-slate-900">{issue.tipo}</dd></>}
+                {(issue.largura || issue.altura) && (
+                  <><dt className="text-slate-500">Medidas</dt>
+                  <dd className="flex items-center gap-1.5 font-semibold text-slate-900">
+                    <Ruler className="h-4 w-4 text-slate-400" strokeWidth={1.75} />{issue.largura} × {issue.altura} mm
+                  </dd></>
+                )}
+                {issue.parent    && <><dt className="text-slate-500">Task</dt><dd className="font-mono text-slate-700">{issue.parent}</dd></>}
+              </dl>
+            </Panel>
 
             {/* Aplicar a todas as subtasks da Task */}
             {lote && (
-              <div className={`bg-white rounded-2xl shadow-sm border-2 p-4 ${emLote ? 'border-amber-400' : 'border-slate-200'}`}>
-                <label className="flex items-start gap-3 cursor-pointer select-none">
+              <Panel className={`p-4 transition-shadow ${emLote ? 'border-amber-400 ring-1 ring-amber-400' : ''}`}>
+                <label className="flex cursor-pointer select-none items-start gap-3">
                   <input
                     type="checkbox"
                     checked={emLote}
                     onChange={(e) => { setEmLote(e.target.checked); setNaoMudaram([]); }}
                     disabled={updatingStatus || updatingLoc}
-                    className="mt-0.5 w-5 h-5 shrink-0 accent-amber-500"
+                    className="mt-0.5 h-5 w-5 shrink-0 accent-amber-600"
                   />
-                  <span className="text-sm text-slate-700">
+                  <span className="text-sm text-slate-800">
                     Aplicar a todas as <b>{lote.subtasks.length} subtasks</b> da task{' '}
                     <span className="font-mono font-semibold">{lote.task}</span>
-                    <span className="block text-xs text-slate-500 mt-0.5">
+                    <span className="mt-0.5 block text-slate-600">
                       Status e localização valem para todas, para frente ou para trás.
                     </span>
                   </span>
                 </label>
 
-                {/* O que vai mudar — visível só com a opção ligada */}
                 {emLote && (
-                  <ul className="mt-3 divide-y divide-slate-100 border-t border-slate-100 text-xs">
+                  <ul className="mt-3 divide-y divide-slate-100 border-t border-slate-100 text-sm">
                     {lote.subtasks.map((s) => (
-                      <li key={s.key} className="flex items-center gap-2 py-1.5">
-                        <span className={`font-mono ${s.key === issue.key ? 'font-bold text-slate-800' : 'text-slate-600'}`}>
+                      <li key={s.key} className="flex items-center gap-2 py-2">
+                        <span className={`font-mono ${s.key === issue.key ? 'font-semibold text-slate-900' : 'text-slate-600'}`}>
                           {s.key}
                         </span>
-                        {s.modelo && <span className="text-slate-500">{s.modelo}</span>}
+                        {s.modelo && <span className="truncate text-slate-500">{s.modelo}</span>}
                         <span className="ml-auto flex items-center gap-2">
-                          {s.localizacao && <span className="font-mono text-slate-500">{s.localizacao}</span>}
+                          {s.localizacao && <span className="font-mono text-slate-600">{s.localizacao}</span>}
                           <StatusBadge status={s.status} />
                         </span>
                       </li>
@@ -480,85 +453,90 @@ export default function Home() {
                   </ul>
                 )}
 
-                {/* Irmãs que não mudaram na última ação em lote */}
                 {naoMudaram.length > 0 && (
-                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-300 px-3 py-2 text-xs text-amber-800">
-                    <p className="font-semibold mb-1">
-                      {naoMudaram.length} {naoMudaram.length === 1 ? 'subtask não mudou' : 'subtasks não mudaram'}
-                    </p>
-                    <ul className="space-y-0.5">
-                      {naoMudaram.map((r) => (
-                        <li key={r.key}>
-                          <span className="font-mono">{r.key}</span> — {r.motivo ?? 'erro'}
-                        </li>
-                      ))}
-                    </ul>
+                  <div className="mt-3 flex gap-2 rounded-lg bg-amber-50 px-3 py-2.5 text-sm text-amber-900">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+                    <div>
+                      <p className="font-semibold">
+                        {naoMudaram.length} {naoMudaram.length === 1 ? 'subtask não mudou' : 'subtasks não mudaram'}
+                      </p>
+                      <ul className="mt-0.5 space-y-0.5">
+                        {naoMudaram.map((r) => (
+                          <li key={r.key}><span className="font-mono">{r.key}</span> — {r.motivo ?? 'erro'}</li>
+                        ))}
+                      </ul>
+                    </div>
                   </div>
                 )}
-              </div>
+              </Panel>
             )}
 
-            {/* Alterar Status */}
-            <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
-              <h2 className="font-semibold text-slate-700 text-sm mb-3">
-                Alterar Status
-                {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
+            {/* Etapa */}
+            <section aria-labelledby="titulo-etapa">
+              <h2 id="titulo-etapa" className="mb-2 px-1 text-sm font-semibold text-slate-700">
+                Mover para{emLoteLabel}
               </h2>
               <div className="grid grid-cols-2 gap-2">
                 {STATUSES.map((s) => {
                   const isActive = issue.status === s;
                   const isAvailable = transitions.some((t) => t.toStatus.toLowerCase() === s.toLowerCase());
-                  const style = STATUS_STYLES[s] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' };
-                  const activeStyle = STATUS_ACTIVE[s] ?? 'bg-gray-500 text-white border-gray-500';
-
+                  const cor = STAGE_BUTTON[s];
                   return (
                     <button
                       key={s}
                       disabled={updatingStatus || (!isAvailable && !isActive)}
                       onClick={() => handleStatusChange(s)}
-                      className={`py-3 px-2 rounded-xl border-2 text-sm font-medium transition-all
-                        ${isActive ? activeStyle : `${style.bg} ${style.text} ${style.border}`}
-                        ${!isAvailable && !isActive ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}
-                      `}
+                      aria-pressed={isActive}
+                      className={`flex min-h-16 items-center gap-2.5 rounded-xl border-2 px-3.5 text-left text-[15px] font-semibold leading-tight shadow-card transition-[transform,background-color,border-color] active:scale-[0.98] disabled:cursor-not-allowed ${
+                        isActive ? `${cor.active} ring-2 ring-offset-2 ring-offset-slate-100` : cor.idle
+                      } ${!isAvailable && !isActive ? 'opacity-40' : ''}`}
                     >
-                      {isActive && '✓ '}{s}
+                      {isActive
+                        ? <Check className="h-5 w-5 shrink-0" strokeWidth={3} />
+                        : <StageDot status={s} className="h-3 w-3" />}
+                      <span className="flex-1">{stageLabel(s)}</span>
                     </button>
                   );
                 })}
               </div>
               {updatingStatus && (
-                <p className="text-center text-slate-400 text-xs mt-2">Atualizando…</p>
+                <p className="mt-2 flex items-center justify-center gap-2 text-sm text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Atualizando no Jira…
+                </p>
               )}
-            </div>
+            </section>
 
-            {/* Alterar Localização */}
+            {/* Localização */}
             {issue.localizacaoFieldId && (
-              <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
-                <h2 className="font-semibold text-slate-700 text-sm mb-3">
-                  Localização
-                  {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
-                </h2>
+              <Panel className={`p-4 ${emLoteAtivo ? 'border-amber-400 ring-1 ring-amber-400' : ''}`}>
+                <label htmlFor="localizacao" className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+                  <MapPin className="h-4 w-4 text-slate-400" strokeWidth={2} /> Localização{emLoteLabel}
+                </label>
                 {issue.localizacaoOptions.length > 0 ? (
                   <select
+                    id="localizacao"
                     value={selectedLoc}
                     onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+                    className="h-12 w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                   >
-                    <option value="">— selecione —</option>
+                    <option value="">Selecione…</option>
                     {issue.localizacaoOptions.map((o) => (
                       <option key={o.id} value={o.value}>{o.value}</option>
                     ))}
                   </select>
                 ) : (
                   <input
+                    id="localizacao"
                     type="text"
                     value={selectedLoc}
                     onChange={(e) => setSelectedLoc(e.target.value)}
-                    placeholder="Digite a localização"
-                    className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                    placeholder="Ex.: A-01"
+                    className="h-12 w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand"
                   />
                 )}
-                <button
+                <Button
+                  size="lg"
+                  className="mt-3 w-full"
                   disabled={
                     updatingLoc || (emLoteAtivo
                       // Em lote a lida pode já estar certa e as irmãs não; vazio
@@ -567,42 +545,37 @@ export default function Home() {
                       : selectedLoc === issue.localizacao)
                   }
                   onClick={handleLocalizacaoSave}
-                  className="mt-3 w-full bg-slate-800 text-white py-3 rounded-xl font-medium text-sm
-                    disabled:opacity-40 active:bg-slate-700 transition-colors"
                 >
+                  {updatingLoc && <Loader2 className="h-5 w-5 animate-spin" />}
                   {updatingLoc
                     ? 'Salvando…'
-                    : emLoteAtivo ? `Salvar em ${lote?.subtasks.length} subtasks` : 'Salvar Localização'}
-                </button>
+                    : emLoteAtivo ? `Salvar em ${lote?.subtasks.length} subtasks` : 'Salvar localização'}
+                </Button>
                 {issue.localizacao && (
-                  <p className="text-slate-400 text-xs mt-1 text-center">
-                    Atual: <span className="font-medium text-slate-600">{issue.localizacao}</span>
+                  <p className="mt-2 text-center text-sm text-slate-500">
+                    Atual: <span className="font-mono font-medium text-slate-800">{issue.localizacao}</span>
                   </p>
                 )}
-              </div>
+              </Panel>
             )}
-
-          </div>
+          </>
         )}
-      </main>
+      </div>
 
-      {/* Scanner modal */}
       {showScanner && (
-        <QRScanner
-          onScan={handleScan}
-          onClose={() => setShowScanner(false)}
-        />
+        <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />
       )}
 
-      {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm
-          px-5 py-3 rounded-2xl shadow-lg z-50 w-max max-w-[calc(100vw-2rem)] text-center">
+        <div
+          role="status"
+          className="fixed bottom-24 left-1/2 z-50 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 animate-toast-in rounded-xl bg-brand px-5 py-3 text-center text-sm font-medium text-white shadow-pop lg:bottom-8"
+        >
           {/* Quebra linha em vez de vazar da tela: o resumo do lote e a
               cascata passam da largura de um celular */}
           {toast}
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }
