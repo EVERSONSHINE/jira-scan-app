@@ -2,6 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { STATUS_ORDER, OUTROS, STATUS_CHART } from '@/lib/status';
 import { marcarSucesso } from '@/lib/autoreload';
+import { AlertTriangle, ChevronDown, Loader2, RefreshCw, Search } from 'lucide-react';
+import AppShell, { Button } from '@/components/AppShell';
+import Logo from '@/components/Logo';
 
 const POLL_MS = 15_000;
 
@@ -45,12 +48,12 @@ interface ResumoData {
 
 function urgencyPill(p: ProjetoNode): { label: string; cls: string } {
   const cores: Record<Urgency, string> = {
-    atrasado: 'bg-red-100 text-red-700',
-    parado:   'bg-red-100 text-red-700',
-    prod:     'bg-amber-100 text-amber-700',
-    pend:     'bg-slate-200 text-slate-600',
-    concl:    'bg-emerald-100 text-emerald-700',
-    exped:    'bg-blue-100 text-blue-700',
+    atrasado: 'bg-red-50 text-red-800',
+    parado:   'bg-red-50 text-red-800',
+    prod:     'bg-amber-50 text-amber-800',
+    pend:     'bg-slate-100 text-slate-700',
+    concl:    'bg-emerald-50 text-emerald-800',
+    exped:    'bg-blue-50 text-blue-800',
   };
   const labels: Record<Urgency, string> = {
     atrasado: `Atrasado ${p.urgencyDias ?? '?'}d`,
@@ -65,7 +68,7 @@ function urgencyPill(p: ProjetoNode): { label: string; cls: string } {
 
 const FILTERS: Array<{ id: string; label: string; match: (p: ProjetoNode) => boolean }> = [
   { id: 'todos', label: 'Todos',        match: () => true },
-  { id: 'risco', label: '⚠ Em risco',   match: (p) => p.urgency === 'atrasado' || p.urgency === 'parado' },
+  { id: 'risco', label: 'Em risco',     match: (p) => p.urgency === 'atrasado' || p.urgency === 'parado' },
   { id: 'prod',  label: 'Em produção',  match: (p) => p.urgency === 'prod' },
   { id: 'pend',  label: 'Pendentes',    match: (p) => p.urgency === 'pend' },
   { id: 'concl', label: 'Concluídos',   match: (p) => p.urgency === 'concl' },
@@ -135,12 +138,12 @@ function Kpi({
   return (
     <div className={`rounded-xl border ${tv ? 'p-3' : 'p-4'} ${theme.card} ${alert}`}>
       <div className={tv ? 'flex items-baseline justify-between gap-2' : ''}>
-        <p className={`flex items-center gap-1.5 font-semibold uppercase tracking-wider whitespace-nowrap ${theme.faint} ${tv ? 'text-sm' : 'text-[11px]'}`}>
+        <p className={`flex items-center gap-1.5 font-medium whitespace-nowrap ${theme.faint} ${tv ? 'text-base' : 'text-sm'}`}>
           {dot} {label}
         </p>
-        <p className={`font-bold tabular-nums ${tv ? 'text-4xl' : 'text-4xl mt-1'} ${valueCls}`}>{value}</p>
+        <p className={`font-semibold tracking-tight tabular-nums ${tv ? 'text-4xl' : 'text-3xl mt-1'} ${valueCls}`}>{value}</p>
       </div>
-      <p className={`${theme.muted} mt-1 tabular-nums ${tv ? 'text-sm' : 'text-xs'}`}>{sub}</p>
+      <p className={`${theme.muted} mt-1 tabular-nums ${tv ? 'text-sm' : 'text-[13px]'}`}>{sub}</p>
       {children}
     </div>
   );
@@ -159,7 +162,7 @@ const CARD_TYPO: Record<CardSize, {
   // custam altura, e ela sai daqui — não de cortar códigos de localização.
   tv:        { pad: 'px-5 pt-3 pb-3',   cliente: 'text-2xl', meta: 'text-base',   pct: 'text-4xl', bar: 'h-4',   info: 'text-base',   chip: 'text-lg'     },
   tvCompact: { pad: 'px-3 pt-2 pb-2',   cliente: 'text-base',meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2',   info: 'text-[11px]', chip: 'text-[11px]' },
-  desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-sm',  meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2.5', info: 'text-[11px]', chip: 'text-[11px]' },
+  desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-[15px]', meta: 'text-xs', pct: 'text-xl',  bar: 'h-2',   info: 'text-xs',     chip: 'text-xs'     },
 };
 
 interface Theme { card: string; cardAlarme: string; muted: string; faint: string; divider: string }
@@ -202,7 +205,7 @@ function Locais({ locais, size }: { locais: string[]; size: CardSize }) {
       {locais.map((l) => (
         <span
           key={l}
-          className={`rounded px-2 py-0.5 font-mono font-bold tracking-wide whitespace-nowrap ${LOC_CHIP}`}
+          className={`rounded-md px-1.5 py-0.5 font-mono font-semibold tracking-wide whitespace-nowrap ${LOC_CHIP}`}
         >
           {l}
         </span>
@@ -232,20 +235,20 @@ function ProjetoCard({
       <div className={t.pad}>
         {/* Nome numa linha só, truncando: a linha economizada vai para as
             localizações, que é onde a informação vale mais na operação */}
-        <p className={`font-semibold leading-tight truncate ${t.cliente}`}>
+        <p className={`font-semibold leading-tight tracking-tight truncate ${t.cliente}`}>
           {p.cliente || p.summary || p.key}
         </p>
         <div className="flex items-baseline justify-between gap-2 mt-0.5">
           <p className={`font-mono truncate ${theme.faint} ${t.meta}`}>
             {p.key}{p.documento && ` · doc ${p.documento}`}
           </p>
-          <span className={`rounded-full px-2.5 py-0.5 font-bold uppercase tracking-wide whitespace-nowrap shrink-0 ${t.meta} ${pill.cls}`}>
+          <span className={`rounded-full px-2 py-0.5 font-medium whitespace-nowrap shrink-0 ${t.meta} ${pill.cls}`}>
             {pill.label}
           </span>
         </div>
 
         <div className={`flex items-center gap-2.5 ${size === 'tv' ? 'mt-2' : 'mt-3'}`}>
-          <span className={`font-bold tabular-nums ${t.pct}`}>{p.pct}%</span>
+          <span className={`font-semibold tracking-tight tabular-nums ${t.pct}`}>{p.pct}%</span>
           <div className="flex-1">
             <StackedBar porStatus={p.counts.porStatus} total={p.counts.total} height={t.bar} />
           </div>
@@ -258,7 +261,7 @@ function ProjetoCard({
           {/* Última movimentação em todos os cards, não só nos de alarme */}
           {p.lastMove && <span>últ. mov. {fmtData(p.lastMove)}</span>}
           {alarme
-            ? <span className="font-semibold text-red-600">{alarme}</span>
+            ? <span className="font-semibold text-red-700">{alarme}</span>
             : p.duedate && <span className="font-semibold">prazo {fmtData(p.duedate)}</span>}
         </p>
 
@@ -270,9 +273,10 @@ function ProjetoCard({
           <button
             onClick={onToggle}
             aria-expanded={!!expanded}
-            className={`w-full border-t py-1.5 text-xs font-semibold ${theme.divider} ${theme.faint} hover:text-slate-700`}
+            className={`flex w-full items-center justify-center gap-1 border-t py-2 text-xs font-medium ${theme.divider} ${theme.faint} hover:bg-slate-50 hover:text-slate-800`}
           >
-            {expanded ? 'Detalhes ▴' : 'Detalhes ▾'}
+            Detalhes
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} strokeWidth={2} />
           </button>
           {expanded && (
             <div className="px-4 pb-4 space-y-2">
@@ -301,7 +305,7 @@ function ProjetoCard({
               {p.quadros.length > 0 && (
                 <div className="overflow-auto max-h-64 border rounded-lg border-slate-200">
                   <table className="w-full text-xs">
-                    <thead className="sticky top-0 bg-white">
+                    <thead className="sticky top-0 bg-slate-50">
                       <tr className={theme.faint}>
                         <th className="text-left font-semibold py-1 px-2">Quadro</th>
                         <th className="text-left font-semibold py-1 px-2">Modelo</th>
@@ -385,11 +389,11 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
   // Tema claro, um só para TV e desktop: o que cresce na TV é a tipografia
   // (CARD_TYPO), não o contraste. Cinzas um passo mais escuros que o padrão do
   // desktop antigo — o painel é lido de longe, e slate-400 some a 3 metros.
-  const surface = 'bg-slate-200 text-slate-900';
-  const card    = 'bg-white border-slate-200 shadow-sm';
+  const surface = 'bg-slate-100 text-slate-900';
+  const card    = 'bg-white border-slate-200 shadow-card';
   // Card em alarme (atrasado/parado): moldura vermelha inteira. A etapa já
   // está no selo; só o alarme ganha moldura, para saltar aos olhos de longe.
-  const cardAlarme = 'bg-white border-red-600 ring-1 ring-red-600 shadow-sm';
+  const cardAlarme = 'bg-white border-red-600 ring-1 ring-red-600 shadow-card';
   const muted   = 'text-slate-600';
   const faint   = 'text-slate-500';
   const divider = 'border-slate-200';
@@ -412,51 +416,25 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
 
   const k = data?.kpis;
 
-  return (
-    <div className={`min-h-screen ${surface}`}>
-      <div className={`mx-auto ${tv ? 'p-3 space-y-2' : 'p-4 md:p-6 space-y-4 max-w-6xl'}`}>
+  const atualizado = updatedAt && `atualizado às ${updatedAt}`;
 
-        {/* Barra do topo — na TV uma linha só, para sobrar altura para os cards */}
-        <header className={`flex flex-wrap items-center gap-3 ${tv ? 'items-baseline' : ''}`}>
-          <div className={tv ? 'mr-auto flex items-baseline gap-3' : 'mr-auto'}>
-            <h1 className={`font-bold leading-tight tracking-tight ${tv ? 'text-2xl' : 'text-xl'}`}>
-              Resumo da Produção
-            </h1>
-            <p className={`${muted} ${tv ? 'text-base' : 'text-xs'}`}>
-              Shine Windows{updatedAt && ` · atualizado às ${updatedAt}`}
-            </p>
-          </div>
-          {!tv && (
-            <>
-              <input
-                type="search"
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="🔍 Buscar cliente ou código…"
-                aria-label="Buscar cliente ou código"
-                className={`rounded-lg border px-3 py-2 text-sm min-w-60 outline-none focus:ring-2 focus:ring-slate-400 ${card}`}
-              />
-              <button
-                onClick={load}
-                disabled={loading}
-                className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-40 active:bg-slate-700"
-              >
-                {loading ? 'Atualizando…' : 'Atualizar'}
-              </button>
-            </>
-          )}
-        </header>
-
+  const content = (
+      <div className={tv ? 'space-y-2' : 'space-y-4'}>
         {/* Erro */}
         {error && (
-          <div className={`rounded-xl border px-4 py-3 bg-amber-50 border-amber-300 text-amber-700 ${tv ? 'text-lg' : 'text-sm'}`}>
-            ⚠ Falha ao atualizar — {data ? 'mostrando últimos dados.' : 'tentando novamente.'}
-            <span className="opacity-70"> ({error.slice(0, 120)})</span>
+          <div role="alert" className={`flex items-start gap-2.5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-900 ${tv ? 'text-lg' : 'text-sm'}`}>
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" strokeWidth={2} />
+            <span>
+              <b className="font-semibold">Falha ao atualizar</b> — {data ? 'mostrando os últimos dados.' : 'tentando novamente.'}
+              <span className="text-amber-800"> ({error.replace(/^(Error: )+/, '').slice(0, 120)})</span>
+            </span>
           </div>
         )}
 
         {!data && !error && (
-          <p className={`text-center py-16 ${muted} ${tv ? 'text-2xl' : ''}`}>Carregando…</p>
+          <p className={`flex items-center justify-center gap-2 py-16 ${muted} ${tv ? 'text-2xl' : 'text-sm'}`}>
+            <Loader2 className="h-5 w-5 animate-spin" /> Carregando…
+          </p>
         )}
 
         {data && k && (
@@ -539,7 +517,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                         <div key={label} className="grid grid-cols-[110px_1fr] md:grid-cols-[130px_1fr_max-content] gap-x-3 gap-y-1 items-center">
                           <span className={`font-semibold text-xs ${muted}`}>
                             <b className="tabular-nums text-slate-800">{nf(t.total)}</b> {label}
-                            <span className={`ml-1 text-[9px] border rounded px-1 align-middle ${faint} ${divider}`}>{jira}</span>
+                            <span className={`ml-1 text-[10px] border rounded px-1 align-middle ${faint} ${divider}`}>{jira}</span>
                           </span>
                           <StackedBar porStatus={t.porStatus} total={t.total} height="h-3.5" />
                           <span className={`hidden md:block whitespace-nowrap tabular-nums text-[11px] ${faint}`}>
@@ -567,7 +545,7 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
             {/* Filtros */}
             {!tv && (
               <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Filtrar projetos">
-                <span className={`text-xs font-semibold ${faint}`}>Projetos</span>
+                <span className={`mr-1 text-sm font-semibold text-slate-900`}>Projetos</span>
                 {FILTERS.map((f) => {
                   const n = data.projetos.filter(f.match).length;
                   const on = filtro === f.id;
@@ -576,13 +554,15 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
                     <button
                       key={f.id}
                       onClick={() => setFiltro(f.id)}
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold transition-colors ${
+                      aria-pressed={on}
+                      className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-[13px] font-medium transition-colors ${
                         on
-                          ? isRisco ? 'bg-red-600 border-red-600 text-white' : 'bg-slate-800 border-slate-800 text-white'
-                          : isRisco ? 'border-red-600 text-red-600 bg-white' : `${card} ${muted}`
+                          ? isRisco ? 'bg-red-700 border-red-700 text-white' : 'bg-brand border-brand text-white'
+                          : isRisco ? 'border-red-300 text-red-700 bg-white hover:bg-red-50' : `${card} text-slate-700 hover:bg-slate-50`
                       }`}
                     >
-                      {f.label} <span className="opacity-60 tabular-nums">{n}</span>
+                      {isRisco && <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2.25} />}
+                      {f.label} <span className={`tabular-nums ${on ? 'text-white/70' : 'text-slate-500'}`}>{n}</span>
                     </button>
                   );
                 })}
@@ -651,6 +631,60 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
           </>
         )}
       </div>
-    </div>
+  );
+
+  if (tv) {
+    return (
+      <div className={`min-h-screen ${surface} p-3`}>
+        {/* Barra do topo — na TV uma linha só, para sobrar altura para os cards */}
+        <header className="mb-2 flex items-center gap-4 px-1">
+          <Logo className="w-24 text-brand" />
+          <span className="h-7 w-px bg-slate-300" aria-hidden />
+          <h1 className="text-2xl font-semibold tracking-tight">Resumo da produção</h1>
+          {atualizado && <p className={`ml-auto text-base ${muted}`}>{atualizado}</p>}
+        </header>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <AppShell
+      title="Resumo da produção"
+      actions={
+        <>
+          {atualizado && <span className={`hidden text-sm xl:block ${faint}`}>{atualizado}</span>}
+          <div className="relative max-md:hidden">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              type="search"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar cliente ou código…"
+              aria-label="Buscar cliente ou código"
+              className="h-9 w-64 rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+            />
+          </div>
+          <Button variant="secondary" onClick={load} disabled={loading} aria-label="Atualizar">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
+            <span className="max-sm:hidden">{loading ? 'Atualizando…' : 'Atualizar'}</span>
+          </Button>
+        </>
+      }
+    >
+      {/* Busca no celular: abaixo do título, largura total */}
+      <div className="relative mb-4 md:hidden">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <input
+          type="search"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar cliente ou código…"
+          aria-label="Buscar cliente ou código"
+          className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand"
+        />
+      </div>
+      {content}
+    </AppShell>
   );
 }

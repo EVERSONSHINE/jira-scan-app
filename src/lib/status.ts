@@ -46,3 +46,14 @@ export const STATUS_CHART: Record<string, string> = {
   'Expedido':          'bg-blue-600',
   [OUTROS]:            'bg-gray-400',
 };
+
+/** Nome curto da etapa para a interface (o Jira continua com o nome dele) */
+export function stageLabel(raw: string): string {
+  switch (canonicalStatus(raw)) {
+    case 'Tarefas Pendentes': return 'Pendente';
+    case 'Em Andamento':      return 'Em produção';
+    case 'Concluido':         return 'Concluído';
+    case 'Expedido':          return 'Expedido';
+    default:                  return raw;
+  }
+}

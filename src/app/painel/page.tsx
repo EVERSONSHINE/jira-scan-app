@@ -35,6 +35,6 @@ export default function PainelPage() {
   }, []);
 
   return expedicaoAtiva(state.data)
-    ? <ExpedicaoClient {...state} />
+    ? <ExpedicaoClient {...state} tv />
     : <ResumoClient tv />;
 }

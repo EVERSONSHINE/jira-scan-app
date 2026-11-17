@@ -1,6 +1,9 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { canonicalStatus } from '@/lib/status';
+import { AlertTriangle, ArrowLeft, ChevronRight, Loader2, Search } from 'lucide-react';
+import { stageLabel } from '@/lib/status';
+import AppShell, { Button, Panel } from '@/components/AppShell';
+import StatusBadge from '@/components/StatusBadge';
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -19,25 +22,6 @@ interface QuadroItem {
   tipo: string;
   modelo: string;
   localizacao: string;
-}
-
-// ─── Helpers visuais (mesma linguagem de page.tsx) ───────────────────────────
-
-const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  'Tarefas Pendentes': { bg: 'bg-slate-100',   text: 'text-slate-700',   border: 'border-slate-300' },
-  'Em Andamento':      { bg: 'bg-amber-100',   text: 'text-amber-700',   border: 'border-amber-400' },
-  'Concluido':         { bg: 'bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-400' },
-  'Expedido':          { bg: 'bg-blue-100',    text: 'text-blue-700',    border: 'border-blue-400' },
-};
-
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLES[canonicalStatus(status)] ??
-    { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300' };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border whitespace-nowrap ${s.bg} ${s.text} ${s.border}`}>
-      {status}
-    </span>
-  );
 }
 
 /** Valores distintos (não vazios) de um campo, ordenados */
@@ -124,180 +108,179 @@ export default function QuadrosPage() {
   const temFiltro = !!(fTipo || fModelo || fLoc || fStatus);
 
   return (
-    <div className="max-w-lg mx-auto min-h-screen flex flex-col">
+    <AppShell
+      title={epic ? (epic.cliente || epic.summary) : 'Quadros'}
+      actions={epic && (
+        <Button variant="ghost" onClick={() => { setEpic(null); setQuadros([]); }}>
+          <ArrowLeft className="h-4 w-4" strokeWidth={2} /> <span className="max-sm:hidden">Trocar projeto</span>
+        </Button>
+      )}
+    >
+      <div className="space-y-4">
 
-      {/* Header */}
-      <header className="bg-slate-800 text-white px-4 py-4 flex items-center justify-between sticky top-0 z-10 shadow">
-        <div>
-          <h1 className="font-bold text-lg leading-tight">Quadros</h1>
-          <p className="text-slate-400 text-xs">Localização por projeto</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {epic ? (
-            <button onClick={() => { setEpic(null); setQuadros([]); }} className="text-slate-300 text-sm underline">
-              Trocar projeto
-            </button>
-          ) : (
-            <a href="/" className="text-slate-300 text-xs underline whitespace-nowrap">← Início</a>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 p-4 space-y-4">
-
-        {/* Passo 1: escolher o Epic */}
+        {/* Passo 1: escolher o projeto */}
         {!epic && (
           <>
-            <input
-              type="text"
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por cliente, documento ou chave…"
-              className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm bg-white
-                focus:outline-none focus:ring-2 focus:ring-slate-400"
-            />
+            <div>
+              <p className="mb-3 text-sm text-slate-600">Escolha um projeto para ver onde estão os quadros dele.</p>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="search"
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Buscar por cliente, documento ou chave…"
+                  aria-label="Buscar projeto"
+                  className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand lg:max-w-md lg:text-sm"
+                />
+              </div>
+            </div>
 
             {loadingEpics && (
-              <p className="text-center text-slate-400 text-sm py-6">Carregando projetos…</p>
+              <p className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Carregando projetos…
+              </p>
             )}
-            {epicsError && (
-              <p className="text-center text-red-600 text-sm py-4">Erro: {epicsError}</p>
-            )}
+            {epicsError && <ErrorBox msg={epicsError} />}
             {!loadingEpics && !epicsError && epicsFiltrados.length === 0 && (
-              <p className="text-center text-slate-400 text-sm py-6">Nenhum projeto encontrado.</p>
+              <p className="py-10 text-center text-sm text-slate-500">
+                {busca ? `Nenhum projeto encontrado para “${busca}”.` : 'Nenhum projeto aberto.'}
+              </p>
             )}
 
-            <ul className="space-y-2">
-              {epicsFiltrados.map((e) => (
-                <li key={e.key}>
-                  <button
-                    onClick={() => selectEpic(e)}
-                    className="w-full text-left bg-white rounded-2xl shadow-sm border border-slate-200 px-4 py-3
-                      hover:bg-slate-50 active:bg-slate-100"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono font-bold text-slate-800 text-sm">{e.key}</span>
-                      <StatusBadge status={e.status} />
-                    </div>
-                    <p className="font-semibold text-slate-700 text-sm mt-0.5 truncate">
-                      {e.cliente || e.summary}
-                    </p>
-                    <p className="text-slate-400 text-xs truncate">
-                      {e.cliente && e.summary}
-                      {e.documento && ` · Doc: ${e.documento}`}
-                    </p>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            {epicsFiltrados.length > 0 && (
+              <Panel>
+                <ul className="divide-y divide-slate-100">
+                  {epicsFiltrados.map((e) => (
+                    <li key={e.key}>
+                      <button
+                        onClick={() => selectEpic(e)}
+                        className="flex w-full items-center gap-4 px-4 py-3 text-left first:rounded-t-xl last:rounded-b-xl hover:bg-slate-50 active:bg-slate-100"
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium text-slate-900">{e.cliente || e.summary}</span>
+                          <span className="block truncate text-sm text-slate-500">
+                            <span className="font-mono">{e.key}</span>
+                            {e.cliente && ` · ${e.summary}`}
+                            {e.documento && ` · doc ${e.documento}`}
+                          </span>
+                        </span>
+                        <StatusBadge status={e.status} />
+                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+            )}
           </>
         )}
 
-        {/* Passo 2: quadros do Epic selecionado */}
+        {/* Passo 2: quadros do projeto */}
         {epic && (
-          <div className="space-y-4">
-
-            {/* Card do projeto */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 px-4 py-3">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono font-bold text-slate-800">{epic.key}</span>
-                <StatusBadge status={epic.status} />
-              </div>
-              <p className="font-semibold text-slate-700 text-sm mt-0.5">{epic.cliente || epic.summary}</p>
-              {(epic.cliente || epic.documento) && (
-                <p className="text-slate-400 text-xs">
-                  {epic.cliente && epic.summary}
-                  {epic.documento && ` · Doc: ${epic.documento}`}
-                </p>
-              )}
+          <>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
+              <span className="font-mono font-medium text-slate-800">{epic.key}</span>
+              {epic.cliente && <span>{epic.summary}</span>}
+              {epic.documento && <span>doc {epic.documento}</span>}
+              <StatusBadge status={epic.status} />
             </div>
 
             {loadingQuadros && (
-              <p className="text-center text-slate-400 text-sm py-6">Carregando quadros…</p>
+              <p className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+                <Loader2 className="h-4 w-4 animate-spin" /> Carregando quadros…
+              </p>
             )}
-            {quadrosError && (
-              <p className="text-center text-red-600 text-sm py-4">Erro: {quadrosError}</p>
-            )}
+            {quadrosError && <ErrorBox msg={quadrosError} />}
 
             {!loadingQuadros && !quadrosError && (
               <>
-                {/* Filtros */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="font-semibold text-slate-700 text-sm">Filtros</h2>
-                    {temFiltro && (
-                      <button
-                        onClick={() => { setFTipo(''); setFModelo(''); setFLoc(''); setFStatus(''); }}
-                        className="text-slate-500 text-xs underline"
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  {([
+                    ['Tipo', fTipo, setFTipo, tipos],
+                    ['Modelo', fModelo, setFModelo, modelos],
+                    ['Localização', fLoc, setFLoc, locs],
+                    ['Status', fStatus, setFStatus, statuses],
+                  ] as const).map(([label, value, setter, options]) => (
+                    <label key={label} className="text-sm font-medium text-slate-700">
+                      {label}
+                      <select
+                        value={value}
+                        onChange={(e) => setter(e.target.value)}
+                        className={`mt-1 h-11 w-full rounded-lg border bg-white px-2.5 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand lg:h-10 lg:text-sm ${
+                          value ? 'border-brand font-medium text-brand' : 'border-slate-300 text-slate-900'
+                        }`}
                       >
-                        Limpar
-                      </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      ['Tipo', fTipo, setFTipo, tipos],
-                      ['Modelo', fModelo, setFModelo, modelos],
-                      ['Localização', fLoc, setFLoc, locs],
-                      ['Status', fStatus, setFStatus, statuses],
-                    ] as const).map(([label, value, setter, options]) => (
-                      <label key={label} className="text-xs text-slate-500">
-                        {label}
-                        <select
-                          value={value}
-                          onChange={(e) => setter(e.target.value)}
-                          className="mt-1 w-full border border-slate-300 rounded-xl px-2 py-2 text-sm bg-white
-                            focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        >
-                          <option value="">Todos</option>
-                          {options.map((o) => <option key={o} value={o}>{o}</option>)}
-                        </select>
-                      </label>
-                    ))}
-                  </div>
+                        <option value="">Todos</option>
+                        {options.map((o) => <option key={o} value={o}>{label === 'Status' ? stageLabel(o) : o}</option>)}
+                      </select>
+                    </label>
+                  ))}
                 </div>
 
-                {/* Tabela de quadros */}
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="px-4 py-3 border-b border-slate-100">
-                    <h2 className="font-semibold text-slate-700 text-sm">
-                      {quadrosFiltrados.length} de {quadros.length} quadros
+                <Panel className="overflow-hidden">
+                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+                    <h2 className="text-sm font-semibold text-slate-900">
+                      {quadrosFiltrados.length} <span className="font-normal text-slate-500">de {quadros.length} quadros</span>
                     </h2>
+                    {temFiltro && (
+                      <Button variant="ghost" onClick={() => { setFTipo(''); setFModelo(''); setFLoc(''); setFStatus(''); }}>
+                        Limpar filtros
+                      </Button>
+                    )}
                   </div>
                   {quadros.length === 0 ? (
-                    <p className="text-center text-slate-400 text-sm py-6">Projeto sem quadros.</p>
+                    <p className="py-10 text-center text-sm text-slate-500">Este projeto ainda não tem quadros.</p>
+                  ) : quadrosFiltrados.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-slate-500">Nenhum quadro com esses filtros.</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm">
                         <thead>
-                          <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
-                            <th className="px-4 py-2 font-medium">Quadro</th>
-                            <th className="px-2 py-2 font-medium">Modelo</th>
-                            <th className="px-2 py-2 font-medium">Tipo</th>
-                            <th className="px-2 py-2 font-medium">Localização</th>
-                            <th className="px-4 py-2 font-medium text-right">Status</th>
+                          <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-medium text-slate-500">
+                            <th className="py-2.5 pl-3 pr-2 font-medium sm:px-4">Quadro</th>
+                            <th className="px-2 py-2.5 font-medium sm:px-3">Modelo</th>
+                            <th className="px-3 py-2.5 font-medium max-sm:hidden">Tipo</th>
+                            <th className="px-2 py-2.5 font-medium sm:px-3">Local</th>
+                            <th className="py-2.5 pl-2 pr-3 text-right font-medium sm:px-4">Status</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {quadrosFiltrados.map((q) => (
-                            <tr key={q.key}>
-                              <td className="px-4 py-2 font-mono font-semibold text-slate-800 whitespace-nowrap">{q.key}</td>
-                              <td className="px-2 py-2 text-slate-600">{q.modelo || '—'}</td>
-                              <td className="px-2 py-2 text-slate-600">{q.tipo || '—'}</td>
-                              <td className="px-2 py-2 font-medium text-slate-700">{q.localizacao || '—'}</td>
-                              <td className="px-4 py-2 text-right"><StatusBadge status={q.status} /></td>
+                            <tr key={q.key} className="hover:bg-slate-50">
+                              <td className="whitespace-nowrap py-2.5 pl-3 pr-2 font-mono sm:px-4 font-medium text-slate-900">{q.key}</td>
+                              <td className="px-2 py-2.5 text-slate-700 sm:px-3">{q.modelo || <span className="text-slate-400">—</span>}</td>
+                              <td className="px-3 py-2.5 text-slate-700 max-sm:hidden">{q.tipo || <span className="text-slate-400">—</span>}</td>
+                              <td className="px-2 py-2.5 sm:px-3">
+                                {q.localizacao
+                                  ? <span className="whitespace-nowrap rounded-md bg-cyan-700 px-1.5 py-0.5 font-mono text-xs font-semibold text-white">{q.localizacao}</span>
+                                  : <span className="text-slate-400">—</span>}
+                              </td>
+                              <td className="py-2.5 pl-2 pr-3 text-right sm:px-4"><StatusBadge status={q.status} /></td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
                   )}
-                </div>
+                </Panel>
               </>
             )}
-          </div>
+          </>
         )}
-      </main>
+      </div>
+    </AppShell>
+  );
+}
+
+function ErrorBox({ msg }: { msg: string }) {
+  return (
+    <div role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
+      <div className="min-w-0">
+        <p className="font-semibold">Não foi possível falar com o Jira.</p>
+        <p className="mt-0.5 break-words text-red-800">{msg.replace(/^(Error: )+/, '')}</p>
+      </div>
     </div>
   );
 }
