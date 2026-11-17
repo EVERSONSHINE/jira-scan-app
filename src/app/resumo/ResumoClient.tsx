@@ -43,15 +43,6 @@ interface ResumoData {
 // Regra do painel: cinza=pendente, âmbar=produção, verde=concluído, azul=expedido.
 // Vermelho é reservado para alarme (atrasado/parado) — nunca é cor de etapa.
 
-const URGENCY_STRIPE: Record<Urgency, string> = {
-  atrasado: 'border-l-red-600',
-  parado:   'border-l-red-600',
-  prod:     'border-l-amber-600',
-  pend:     'border-l-slate-400',
-  concl:    'border-l-emerald-600',
-  exped:    'border-l-blue-600',
-};
-
 function urgencyPill(p: ProjetoNode): { label: string; cls: string } {
   const cores: Record<Urgency, string> = {
     atrasado: 'bg-red-100 text-red-700',
@@ -171,7 +162,7 @@ const CARD_TYPO: Record<CardSize, {
   desk:      { pad: 'px-4 pt-3.5 pb-3', cliente: 'text-sm',  meta: 'text-[11px]', pct: 'text-xl',  bar: 'h-2.5', info: 'text-[11px]', chip: 'text-[11px]' },
 };
 
-interface Theme { card: string; muted: string; faint: string; divider: string }
+interface Theme { card: string; cardAlarme: string; muted: string; faint: string; divider: string }
 
 /**
  * Ciano preenchido: é onde a peça está, o dado que manda alguém andar até um
@@ -237,7 +228,7 @@ function ProjetoCard({
       : null;
 
   return (
-    <article className={`rounded-xl border overflow-hidden border-l-4 ${theme.card} ${URGENCY_STRIPE[p.urgency]}`}>
+    <article className={`rounded-xl border overflow-hidden ${alarme ? theme.cardAlarme : theme.card}`}>
       <div className={t.pad}>
         {/* Nome numa linha só, truncando: a linha economizada vai para as
             localizações, que é onde a informação vale mais na operação */}
@@ -396,10 +387,13 @@ export default function ResumoClient({ tv }: { tv: boolean }) {
   // desktop antigo — o painel é lido de longe, e slate-400 some a 3 metros.
   const surface = 'bg-slate-200 text-slate-900';
   const card    = 'bg-white border-slate-200 shadow-sm';
+  // Card em alarme (atrasado/parado): moldura vermelha inteira. A etapa já
+  // está no selo; só o alarme ganha moldura, para saltar aos olhos de longe.
+  const cardAlarme = 'bg-white border-red-600 ring-1 ring-red-600 shadow-sm';
   const muted   = 'text-slate-600';
   const faint   = 'text-slate-500';
   const divider = 'border-slate-200';
-  const theme   = { card, muted, faint, divider };
+  const theme   = { card, cardAlarme, muted, faint, divider };
 
   const projetosVisiveis = useMemo(() => {
     if (!data) return [];
