@@ -31,22 +31,6 @@ export function canonicalStatus(raw: string): string {
   return OUTROS;
 }
 
-/**
- * Cores de gráfico por status, validadas para contraste ≥ 3:1 e separação CVD
- * (scripts/validate_palette.js da skill dataviz). O cinza de "Tarefas Pendentes"
- * é intencional (estado neutro); todo gráfico acompanha legenda + números.
- *
- * Uma paleta só: painel da TV e desktop usam o mesmo tema claro, então o que
- * muda entre eles é a tipografia, não a cor.
- */
-export const STATUS_CHART: Record<string, string> = {
-  'Tarefas Pendentes': 'bg-slate-500',
-  'Em Andamento':      'bg-amber-600',
-  'Concluido':         'bg-emerald-600',
-  'Expedido':          'bg-blue-600',
-  [OUTROS]:            'bg-gray-400',
-};
-
 /** Nome curto da etapa para a interface (o Jira continua com o nome dele) */
 export function stageLabel(raw: string): string {
   switch (canonicalStatus(raw)) {

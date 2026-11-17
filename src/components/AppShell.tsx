@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Boxes, LayoutDashboard, ScanLine, Truck, Tv, type LucideIcon } from 'lucide-react';
+import { Boxes, ChartColumn, ScanLine, Truck, Tv, type LucideIcon } from 'lucide-react';
 import Logo from './Logo';
 
 interface NavItem { href: string; label: string; icon: LucideIcon; mobile: boolean }
@@ -9,7 +9,7 @@ interface NavItem { href: string; label: string; icon: LucideIcon; mobile: boole
 const NAV: NavItem[] = [
   { href: '/',          label: 'Leitura',   icon: ScanLine,        mobile: true },
   { href: '/quadros',   label: 'Quadros',   icon: Boxes,           mobile: true },
-  { href: '/resumo',    label: 'Resumo',    icon: LayoutDashboard, mobile: true },
+  { href: '/indicadores', label: 'Indicadores', icon: ChartColumn, mobile: true },
   { href: '/expedicao', label: 'Expedição', icon: Truck,           mobile: true },
   // A TV abre o painel uma vez e fica nele; no celular não faz sentido
   { href: '/painel',    label: 'Painel TV', icon: Tv,              mobile: false },
@@ -35,9 +35,9 @@ export default function AppShell({
   const pathname = usePathname();
 
   return (
-    <div className="min-h-screen lg:pl-60">
+    <div className="min-h-screen lg:pl-60 print:pl-0">
       {/* Menu lateral — desktop */}
-      <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 flex-col border-r border-slate-200 bg-white px-3 py-5 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-20 hidden w-60 print:!hidden flex-col border-r border-slate-200 bg-white px-3 py-5 lg:flex">
         <Link href="/" className="mb-8 ml-3 block w-24 text-brand" aria-label="Início">
           <Logo className="w-full" />
         </Link>
@@ -63,7 +63,7 @@ export default function AppShell({
       </aside>
 
       {/* Barra superior */}
-      <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+      <header className="sticky top-0 z-10 print:hidden border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
         <div className={`mx-auto flex h-14 items-center gap-3 px-4 lg:h-16 lg:px-8 ${width === 'narrow' ? 'max-w-xl lg:max-w-3xl' : 'max-w-7xl'}`}>
           <Link href="/" className="w-[72px] shrink-0 text-brand lg:hidden" aria-label="Início">
             <Logo className="w-full" />
@@ -75,14 +75,14 @@ export default function AppShell({
         </div>
       </header>
 
-      <main className={`mx-auto px-4 pb-28 pt-4 lg:px-8 lg:pb-12 lg:pt-6 ${width === 'narrow' ? 'max-w-xl lg:max-w-3xl' : 'max-w-7xl'}`}>
+      <main className={`mx-auto px-4 pb-28 pt-4 lg:px-8 lg:pb-12 lg:pt-6 print:max-w-none print:p-0 ${width === 'narrow' ? 'max-w-xl lg:max-w-3xl' : 'max-w-7xl'}`}>
         {children}
       </main>
 
       {/* Abas — celular */}
       <nav
         aria-label="Principal"
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] lg:hidden print:hidden"
       >
         <div className="mx-auto grid max-w-xl grid-cols-4">
           {NAV.filter((n) => n.mobile).map(({ href, label, icon: Icon }) => {

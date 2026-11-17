@@ -6,7 +6,7 @@ import {
   AlertTriangle, Camera, Check, ChevronRight, Loader2, MapPin, RotateCcw, Ruler, ScanLine, Search,
 } from 'lucide-react';
 import AppShell, { Button, Panel } from '@/components/AppShell';
-import StatusBadge, { StageDot } from '@/components/StatusBadge';
+import StatusBadge, { STAGE_BUTTON, StageDot } from '@/components/StatusBadge';
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
@@ -480,21 +480,21 @@ export default function Home() {
                 {STATUSES.map((s) => {
                   const isActive = issue.status === s;
                   const isAvailable = transitions.some((t) => t.toStatus.toLowerCase() === s.toLowerCase());
+                  const cor = STAGE_BUTTON[s];
                   return (
                     <button
                       key={s}
                       disabled={updatingStatus || (!isAvailable && !isActive)}
                       onClick={() => handleStatusChange(s)}
                       aria-pressed={isActive}
-                      className={`flex min-h-16 items-center gap-2.5 rounded-xl border px-3.5 text-left text-[15px] leading-tight font-semibold shadow-card transition-[transform,background-color,border-color] active:scale-[0.98] disabled:cursor-not-allowed ${
-                        isActive
-                          ? 'border-brand bg-brand-50 text-brand ring-1 ring-brand'
-                          : 'border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50'
+                      className={`flex min-h-16 items-center gap-2.5 rounded-xl border-2 px-3.5 text-left text-[15px] font-semibold leading-tight shadow-card transition-[transform,background-color,border-color] active:scale-[0.98] disabled:cursor-not-allowed ${
+                        isActive ? `${cor.active} ring-2 ring-offset-2 ring-offset-slate-100` : cor.idle
                       } ${!isAvailable && !isActive ? 'opacity-40' : ''}`}
                     >
-                      <StageDot status={s} className="h-3 w-3" />
+                      {isActive
+                        ? <Check className="h-5 w-5 shrink-0" strokeWidth={3} />
+                        : <StageDot status={s} className="h-3 w-3" />}
                       <span className="flex-1">{stageLabel(s)}</span>
-                      {isActive && <Check className="h-5 w-5" strokeWidth={2.5} />}
                     </button>
                   );
                 })}

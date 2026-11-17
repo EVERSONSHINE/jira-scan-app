@@ -29,6 +29,14 @@
 
   * { scrollbar-width: thin; scrollbar-color: theme('colors.slate.300') transparent; }
 
+  /* Impressão (relatório do PCP): papel branco, cores dos selos preservadas */
+  @media print {
+    @page { size: A4; margin: 10mm; }
+    body { background: white; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    thead { display: table-header-group; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
   }

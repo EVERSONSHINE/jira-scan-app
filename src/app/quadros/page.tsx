@@ -1,286 +1,266 @@
 'use client';
-import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowLeft, ChevronRight, Loader2, Search } from 'lucide-react';
-import { stageLabel } from '@/lib/status';
+import { useMemo, useState } from 'react';
+import { AlertTriangle, Loader2, MapPin, Printer, RefreshCw, Search } from 'lucide-react';
 import AppShell, { Button, Panel } from '@/components/AppShell';
+import Logo from '@/components/Logo';
 import StatusBadge from '@/components/StatusBadge';
+import { usePolling } from '@/components/usePolling';
+import { STATUS_ORDER, stageLabel } from '@/lib/status';
+import type { ObraResumo, QuadroRelatorio, Relatorio } from '@/lib/tiposApi';
+import { diaMes, plural, prazoRelativo } from '@/lib/formato';
 
-// ─── Tipos ───────────────────────────────────────────────────────────────────
+type Agrupar = 'obra' | 'local';
+/** "fabrica" = tudo menos Expedido: o que ainda está fisicamente na fábrica */
+type Etapa = 'fabrica' | 'todas' | (typeof STATUS_ORDER)[number];
 
-interface EpicItem {
-  key: string;
-  summary: string;
-  status: string;
-  cliente: string;
-  documento: string;
-}
+interface Linha extends QuadroRelatorio { obra: ObraResumo }
 
-interface QuadroItem {
-  key: string;
-  summary: string;
-  status: string;
-  tipo: string;
-  modelo: string;
-  localizacao: string;
-}
+const SEM_LOCAL = 'Sem local';
+const porTexto = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { numeric: true });
 
-/** Valores distintos (não vazios) de um campo, ordenados */
-function distinct(rows: QuadroItem[], get: (q: QuadroItem) => string): string[] {
-  return [...new Set(rows.map(get).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-}
-
-// ─── Componente principal ────────────────────────────────────────────────────
-
-export default function QuadrosPage() {
-  const [epics, setEpics] = useState<EpicItem[]>([]);
-  const [loadingEpics, setLoadingEpics] = useState(true);
-  const [epicsError, setEpicsError] = useState('');
+/**
+ * Relatório do PCP: onde estão as peças de cada obra. Agrupa por obra ou por
+ * localização, filtra, e imprime em A4 exatamente o que está na tela.
+ */
+export default function RelatorioQuadros() {
+  const { data, error, loading, reload } = usePolling<Relatorio>('/api/relatorio');
+  const [agrupar, setAgrupar] = useState<Agrupar>('obra');
   const [busca, setBusca] = useState('');
+  const [local, setLocal] = useState('');
+  const [etapa, setEtapa] = useState<Etapa>('fabrica');
 
-  const [epic, setEpic] = useState<EpicItem | null>(null);
-  const [quadros, setQuadros] = useState<QuadroItem[]>([]);
-  const [loadingQuadros, setLoadingQuadros] = useState(false);
-  const [quadrosError, setQuadrosError] = useState('');
+  const linhas = useMemo<Linha[]>(
+    () => (data?.obras ?? []).flatMap((g) => g.quadros.map((q) => ({ ...q, obra: g.obra }))),
+    [data],
+  );
+  const locais = useMemo(() => [...new Set(linhas.map((l) => l.loc).filter(Boolean))].sort(porTexto), [linhas]);
 
-  const [fTipo, setFTipo] = useState('');
-  const [fModelo, setFModelo] = useState('');
-  const [fLoc, setFLoc] = useState('');
-  const [fStatus, setFStatus] = useState('');
-
-  useEffect(() => {
-    fetch('/api/epicos')
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.error) throw new Error(data.error);
-        setEpics(Array.isArray(data) ? data : []);
-      })
-      .catch((e) => setEpicsError(String(e)))
-      .finally(() => setLoadingEpics(false));
-  }, []);
-
-  const selectEpic = async (e: EpicItem) => {
-    setEpic(e);
-    setQuadros([]);
-    setQuadrosError('');
-    setFTipo(''); setFModelo(''); setFLoc(''); setFStatus('');
-    setLoadingQuadros(true);
-    try {
-      const res = await fetch(`/api/epicos/${e.key}/quadros`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setQuadros(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setQuadrosError(String(err));
-    } finally {
-      setLoadingQuadros(false);
-    }
-  };
-
-  const epicsFiltrados = useMemo(() => {
+  const filtradas = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    if (!q) return epics;
-    return epics.filter((e) =>
-      [e.key, e.summary, e.cliente, e.documento].some((v) => v.toLowerCase().includes(q)),
+    return linhas.filter((l) =>
+      (etapa === 'todas' || (etapa === 'fabrica' ? l.status !== 'Expedido' : l.status === etapa)) &&
+      (!local || (local === SEM_LOCAL ? !l.loc : l.loc === local)) &&
+      (!q || `${l.key} ${l.caixilho} ${l.caixilhoNome} ${l.obra.key} ${l.obra.cliente} ${l.obra.documento}`.toLowerCase().includes(q)),
     );
-  }, [epics, busca]);
+  }, [linhas, busca, local, etapa]);
 
-  const tipos = useMemo(() => distinct(quadros, (q) => q.tipo), [quadros]);
-  const modelos = useMemo(() => distinct(quadros, (q) => q.modelo), [quadros]);
-  const locs = useMemo(() => distinct(quadros, (q) => q.localizacao), [quadros]);
-  const statuses = useMemo(() => distinct(quadros, (q) => q.status), [quadros]);
+  const grupos = useMemo(() => {
+    const mapa = new Map<string, Linha[]>();
+    for (const l of filtradas) {
+      const k = agrupar === 'obra' ? l.obra.key : l.loc || SEM_LOCAL;
+      const g = mapa.get(k) ?? [];
+      g.push(l);
+      mapa.set(k, g);
+    }
+    const lista = [...mapa.entries()].map(([chave, itens]) => ({ chave, itens }));
+    if (agrupar === 'obra') {
+      // Mesma ordem da API: entrega mais próxima primeiro
+      const ordem = new Map((data?.obras ?? []).map((g, i) => [g.obra.key, i]));
+      lista.sort((a, b) => (ordem.get(a.chave) ?? 0) - (ordem.get(b.chave) ?? 0));
+      for (const g of lista) g.itens.sort((a, b) => (!a.loc !== !b.loc ? (a.loc ? -1 : 1) : porTexto(a.loc, b.loc) || porTexto(a.key, b.key)));
+    } else {
+      lista.sort((a, b) => (a.chave === SEM_LOCAL ? 1 : b.chave === SEM_LOCAL ? -1 : porTexto(a.chave, b.chave)));
+      const ordem = new Map((data?.obras ?? []).map((g, i) => [g.obra.key, i]));
+      for (const g of lista) g.itens.sort((a, b) => (ordem.get(a.obra.key)! - ordem.get(b.obra.key)!) || porTexto(a.key, b.key));
+    }
+    return lista;
+  }, [filtradas, agrupar, data]);
 
-  const quadrosFiltrados = useMemo(() => {
-    return quadros
-      .filter((q) =>
-        (!fTipo || q.tipo === fTipo) &&
-        (!fModelo || q.modelo === fModelo) &&
-        (!fLoc || q.localizacao === fLoc) &&
-        (!fStatus || q.status === fStatus),
-      )
-      // Ordena por localização (vazias por último) para facilitar a coleta física
-      .sort((a, b) => {
-        if (!a.localizacao !== !b.localizacao) return a.localizacao ? -1 : 1;
-        const l = a.localizacao.localeCompare(b.localizacao, 'pt-BR');
-        return l !== 0 ? l : a.key.localeCompare(b.key, 'pt-BR', { numeric: true });
-      });
-  }, [quadros, fTipo, fModelo, fLoc, fStatus]);
-
-  const temFiltro = !!(fTipo || fModelo || fLoc || fStatus);
+  const nObras = new Set(filtradas.map((l) => l.obra.key)).size;
+  const filtrosTexto = [
+    etapa === 'fabrica' ? 'na fábrica (sem expedidos)' : etapa === 'todas' ? 'todas as etapas' : stageLabel(etapa),
+    local && `local ${local}`,
+    busca.trim() && `busca “${busca.trim()}”`,
+  ].filter(Boolean).join(' · ');
 
   return (
     <AppShell
-      title={epic ? (epic.cliente || epic.summary) : 'Quadros'}
-      actions={epic && (
-        <Button variant="ghost" onClick={() => { setEpic(null); setQuadros([]); }}>
-          <ArrowLeft className="h-4 w-4" strokeWidth={2} /> <span className="max-sm:hidden">Trocar projeto</span>
-        </Button>
-      )}
+      title="Relatório de quadros"
+      actions={
+        <>
+          <Button variant="ghost" onClick={reload} disabled={loading} aria-label="Atualizar">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} strokeWidth={2} />
+          </Button>
+          <Button onClick={() => window.print()} disabled={!data || filtradas.length === 0}>
+            <Printer className="h-4 w-4" strokeWidth={2} /> <span className="max-sm:hidden print:!table-cell">Imprimir</span>
+          </Button>
+        </>
+      }
     >
-      <div className="space-y-4">
-
-        {/* Passo 1: escolher o projeto */}
-        {!epic && (
-          <>
-            <div>
-              <p className="mb-3 text-sm text-slate-600">Escolha um projeto para ver onde estão os quadros dele.</p>
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-                <input
-                  type="search"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar por cliente, documento ou chave…"
-                  aria-label="Buscar projeto"
-                  className="h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand lg:max-w-md lg:text-sm"
-                />
-              </div>
-            </div>
-
-            {loadingEpics && (
-              <p className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" /> Carregando projetos…
-              </p>
-            )}
-            {epicsError && <ErrorBox msg={epicsError} />}
-            {!loadingEpics && !epicsError && epicsFiltrados.length === 0 && (
-              <p className="py-10 text-center text-sm text-slate-500">
-                {busca ? `Nenhum projeto encontrado para “${busca}”.` : 'Nenhum projeto aberto.'}
-              </p>
-            )}
-
-            {epicsFiltrados.length > 0 && (
-              <Panel>
-                <ul className="divide-y divide-slate-100">
-                  {epicsFiltrados.map((e) => (
-                    <li key={e.key}>
-                      <button
-                        onClick={() => selectEpic(e)}
-                        className="flex w-full items-center gap-4 px-4 py-3 text-left first:rounded-t-xl last:rounded-b-xl hover:bg-slate-50 active:bg-slate-100"
-                      >
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium text-slate-900">{e.cliente || e.summary}</span>
-                          <span className="block truncate text-sm text-slate-500">
-                            <span className="font-mono">{e.key}</span>
-                            {e.cliente && ` · ${e.summary}`}
-                            {e.documento && ` · doc ${e.documento}`}
-                          </span>
-                        </span>
-                        <StatusBadge status={e.status} />
-                        <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            )}
-          </>
-        )}
-
-        {/* Passo 2: quadros do projeto */}
-        {epic && (
-          <>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
-              <span className="font-mono font-medium text-slate-800">{epic.key}</span>
-              {epic.cliente && <span>{epic.summary}</span>}
-              {epic.documento && <span>doc {epic.documento}</span>}
-              <StatusBadge status={epic.status} />
-            </div>
-
-            {loadingQuadros && (
-              <p className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
-                <Loader2 className="h-4 w-4 animate-spin" /> Carregando quadros…
-              </p>
-            )}
-            {quadrosError && <ErrorBox msg={quadrosError} />}
-
-            {!loadingQuadros && !quadrosError && (
-              <>
-                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-                  {([
-                    ['Tipo', fTipo, setFTipo, tipos],
-                    ['Modelo', fModelo, setFModelo, modelos],
-                    ['Localização', fLoc, setFLoc, locs],
-                    ['Status', fStatus, setFStatus, statuses],
-                  ] as const).map(([label, value, setter, options]) => (
-                    <label key={label} className="text-sm font-medium text-slate-700">
-                      {label}
-                      <select
-                        value={value}
-                        onChange={(e) => setter(e.target.value)}
-                        className={`mt-1 h-11 w-full rounded-lg border bg-white px-2.5 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand lg:h-10 lg:text-sm ${
-                          value ? 'border-brand font-medium text-brand' : 'border-slate-300 text-slate-900'
-                        }`}
-                      >
-                        <option value="">Todos</option>
-                        {options.map((o) => <option key={o} value={o}>{label === 'Status' ? stageLabel(o) : o}</option>)}
-                      </select>
-                    </label>
-                  ))}
-                </div>
-
-                <Panel className="overflow-hidden">
-                  <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-                    <h2 className="text-sm font-semibold text-slate-900">
-                      {quadrosFiltrados.length} <span className="font-normal text-slate-500">de {quadros.length} quadros</span>
-                    </h2>
-                    {temFiltro && (
-                      <Button variant="ghost" onClick={() => { setFTipo(''); setFModelo(''); setFLoc(''); setFStatus(''); }}>
-                        Limpar filtros
-                      </Button>
-                    )}
-                  </div>
-                  {quadros.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-slate-500">Este projeto ainda não tem quadros.</p>
-                  ) : quadrosFiltrados.length === 0 ? (
-                    <p className="py-10 text-center text-sm text-slate-500">Nenhum quadro com esses filtros.</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs font-medium text-slate-500">
-                            <th className="py-2.5 pl-3 pr-2 font-medium sm:px-4">Quadro</th>
-                            <th className="px-2 py-2.5 font-medium sm:px-3">Modelo</th>
-                            <th className="px-3 py-2.5 font-medium max-sm:hidden">Tipo</th>
-                            <th className="px-2 py-2.5 font-medium sm:px-3">Local</th>
-                            <th className="py-2.5 pl-2 pr-3 text-right font-medium sm:px-4">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {quadrosFiltrados.map((q) => (
-                            <tr key={q.key} className="hover:bg-slate-50">
-                              <td className="whitespace-nowrap py-2.5 pl-3 pr-2 font-mono sm:px-4 font-medium text-slate-900">{q.key}</td>
-                              <td className="px-2 py-2.5 text-slate-700 sm:px-3">{q.modelo || <span className="text-slate-400">—</span>}</td>
-                              <td className="px-3 py-2.5 text-slate-700 max-sm:hidden">{q.tipo || <span className="text-slate-400">—</span>}</td>
-                              <td className="px-2 py-2.5 sm:px-3">
-                                {q.localizacao
-                                  ? <span className="whitespace-nowrap rounded-md bg-cyan-700 px-1.5 py-0.5 font-mono text-xs font-semibold text-white">{q.localizacao}</span>
-                                  : <span className="text-slate-400">—</span>}
-                              </td>
-                              <td className="py-2.5 pl-2 pr-3 text-right sm:px-4"><StatusBadge status={q.status} /></td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </Panel>
-              </>
-            )}
-          </>
-        )}
+      {/* Cabeçalho que só aparece no papel */}
+      <div className="mb-4 hidden items-end justify-between border-b border-slate-300 pb-3 print:flex">
+        <div className="flex items-center gap-4">
+          <Logo className="w-28 text-brand" />
+          <div>
+            <p className="text-lg font-semibold">Relatório de quadros · por {agrupar === 'obra' ? 'obra' : 'localização'}</p>
+            <p className="text-xs text-slate-600">{filtradas.length} quadros · {nObras} obras · {filtrosTexto}</p>
+          </div>
+        </div>
+        <p className="text-xs text-slate-600">Emitido em {new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>
       </div>
+
+      {/* Filtros */}
+      <div className="mb-4 flex flex-wrap items-end gap-3 print:hidden">
+        <div className="relative min-w-0 flex-1 basis-64">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <input
+            type="search" value={busca} onChange={(e) => setBusca(e.target.value)}
+            placeholder="Obra, cliente, documento, quadro ou caixilho…" aria-label="Buscar"
+            className="h-10 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand lg:text-sm"
+          />
+        </div>
+        <Seletor label="Local" value={local} onChange={setLocal}
+          options={[['', 'Todos'], ...locais.map((l) => [l, l] as [string, string]), [SEM_LOCAL, SEM_LOCAL]]} />
+        <Seletor label="Etapa" value={etapa} onChange={(v) => setEtapa(v as Etapa)}
+          options={[['fabrica', 'Na fábrica'], ['todas', 'Todas'], ...STATUS_ORDER.map((s) => [s, stageLabel(s)] as [string, string])]} />
+        <div role="radiogroup" aria-label="Agrupar por" className="flex h-10 rounded-lg border border-slate-300 bg-white p-0.5 text-sm">
+          {(['obra', 'local'] as const).map((a) => (
+            <button key={a} role="radio" aria-checked={agrupar === a} onClick={() => setAgrupar(a)}
+              className={`rounded-md px-3 font-medium transition-colors ${agrupar === a ? 'bg-brand text-white' : 'text-slate-600 hover:text-slate-900'}`}>
+              Por {a}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div role="alert" className="mb-4 flex gap-2.5 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 print:hidden">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
+          <span><b className="font-semibold">Não foi possível falar com o Jira</b> — {data ? 'mostrando os últimos dados.' : 'tente atualizar.'} <span className="text-amber-800">({error.slice(0, 140)})</span></span>
+        </div>
+      )}
+      {!data && !error && (
+        <p className="flex items-center justify-center gap-2 py-20 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin" /> Carregando quadros de todas as obras…</p>
+      )}
+
+      {data && (
+        <>
+          <p className="mb-3 text-sm text-slate-600 print:hidden">
+            <b className="font-semibold text-slate-900">{filtradas.length}</b> quadros em <b className="font-semibold text-slate-900">{nObras}</b> obras
+          </p>
+          {grupos.length === 0 ? (
+            <Panel className="px-5 py-10 text-center text-sm text-slate-500">Nenhum quadro com esses filtros.</Panel>
+          ) : (
+            <div className="space-y-4 print:space-y-3">
+              {grupos.map((g) => agrupar === 'obra'
+                ? <GrupoObra key={g.chave} itens={g.itens} />
+                : <GrupoLocal key={g.chave} local={g.chave} itens={g.itens} />)}
+            </div>
+          )}
+        </>
+      )}
     </AppShell>
   );
 }
 
-function ErrorBox({ msg }: { msg: string }) {
+function Seletor({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void; options: Array<[string, string]>;
+}) {
   return (
-    <div role="alert" className="flex gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900">
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" />
-      <div className="min-w-0">
-        <p className="font-semibold">Não foi possível falar com o Jira.</p>
-        <p className="mt-0.5 break-words text-red-800">{msg.replace(/^(Error: )+/, '')}</p>
+    <label className="text-xs font-medium text-slate-600">
+      {label}
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className={`mt-1 block h-10 min-w-36 rounded-lg border bg-white px-2.5 text-base outline-none focus:border-brand focus:ring-1 focus:ring-brand lg:text-sm ${value && value !== 'fabrica' ? 'border-brand font-medium text-brand' : 'border-slate-300 text-slate-900'}`}>
+        {options.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+      </select>
+    </label>
+  );
+}
+
+const th = 'px-3 py-2 font-medium print:px-1.5 print:py-1';
+const td = 'px-3 py-1.5 print:px-1.5 print:py-0.5';
+
+function Medidas({ q }: { q: QuadroRelatorio }) {
+  return q.largura || q.altura ? <>{q.largura} × {q.altura}</> : <span className="text-slate-400">—</span>;
+}
+
+function Local({ loc }: { loc: string }) {
+  return loc
+    ? <span className="whitespace-nowrap rounded-md bg-cyan-700 px-1.5 py-0.5 font-mono text-xs font-semibold text-white print:border print:border-slate-800 print:bg-white print:text-slate-900">{loc}</span>
+    : <span className="text-slate-400">—</span>;
+}
+
+function GrupoObra({ itens }: { itens: Linha[] }) {
+  const o = itens[0].obra;
+  const atrasada = o.diasParaEntrega !== null && o.diasParaEntrega < 0 && o.situacao !== 'concluida';
+  return (
+    <Panel className="overflow-hidden print:break-inside-auto print:rounded-none print:border-slate-400 print:shadow-none">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-slate-200 bg-slate-50 px-4 py-2.5 print:break-after-avoid print:px-2 print:py-1.5">
+        <p className="min-w-0 font-semibold text-slate-900">{o.cliente}</p>
+        <p className="font-mono text-xs text-slate-600">{o.key}{o.documento && ` · doc ${o.documento}`}</p>
+        <p className={`text-sm ${atrasada ? 'font-medium text-red-700' : 'text-slate-600'}`}>
+          Entrega {o.duedate ? `${diaMes(o.duedate)} (${prazoRelativo(o.diasParaEntrega)})` : 'sem data'}
+        </p>
+        <p className="ml-auto flex items-center gap-3 text-sm text-slate-600">
+          {o.pct}% pronto · {plural(itens.length, 'quadro', 'quadros')} <StatusBadge status={o.status} />
+        </p>
       </div>
-    </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm lg:table-fixed print:table-auto print:text-[8.5pt]">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <th className={`${th} w-28`}>Quadro</th><th className={`${th} w-28 max-md:hidden print:!table-cell`}>Caixilho</th><th className={`${th} w-20`}>Modelo</th>
+              <th className={`${th} w-36 max-sm:hidden print:!table-cell`}>Tipo</th><th className={`${th} w-32 max-sm:hidden print:!table-cell`}>Medidas (mm)</th><th className={`${th} max-lg:hidden print:!table-cell`}>Cor</th>
+              <th className={`${th} w-24`}>Local</th><th className={`${th} w-32 text-right`}>Etapa</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {itens.map((q) => (
+              <tr key={q.key} className="break-inside-avoid">
+                <td className={`${td} whitespace-nowrap font-mono font-medium text-slate-900`}>{q.key}</td>
+                <td className={`${td} max-md:hidden print:!table-cell whitespace-nowrap font-mono text-xs text-slate-600`}>{q.caixilho}</td>
+                <td className={`${td} text-slate-700`}>{q.modelo || '—'}</td>
+                <td className={`${td} max-sm:hidden print:!table-cell text-slate-700`}>{q.tipo || '—'}</td>
+                <td className={`${td} max-sm:hidden print:!table-cell whitespace-nowrap text-slate-700`}><Medidas q={q} /></td>
+                <td className={`${td} max-lg:hidden print:!table-cell text-slate-700`}>{q.cor || '—'}</td>
+                <td className={td}><Local loc={q.loc} /></td>
+                <td className={`${td} text-right`}><StatusBadge status={q.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
+
+function GrupoLocal({ local, itens }: { local: string; itens: Linha[] }) {
+  const nObras = new Set(itens.map((i) => i.obra.key)).size;
+  return (
+    <Panel className="overflow-hidden print:rounded-none print:border-slate-400 print:shadow-none">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 bg-slate-50 px-4 py-2.5 print:break-after-avoid print:px-2 print:py-1.5">
+        <MapPin className="h-4 w-4 text-cyan-700" strokeWidth={2} />
+        {local === SEM_LOCAL ? <p className="font-semibold text-slate-700">{SEM_LOCAL}</p> : <Local loc={local} />}
+        <p className="text-sm text-slate-600">{plural(itens.length, 'quadro', 'quadros')} · {plural(nObras, 'obra', 'obras')}</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm lg:table-fixed print:table-auto print:text-[8.5pt]">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+              <th className={`${th} w-28`}>Quadro</th><th className={th}>Obra</th><th className={`${th} w-28 max-md:hidden print:!table-cell`}>Caixilho</th>
+              <th className={`${th} w-20`}>Modelo</th><th className={`${th} w-36 max-sm:hidden print:!table-cell`}>Tipo</th><th className={`${th} w-32 max-sm:hidden print:!table-cell`}>Medidas (mm)</th>
+              <th className={`${th} w-20 max-lg:hidden print:!table-cell`}>Entrega</th><th className={`${th} w-32 text-right`}>Etapa</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {itens.map((q) => (
+              <tr key={q.key} className="break-inside-avoid">
+                <td className={`${td} whitespace-nowrap font-mono font-medium text-slate-900`}>{q.key}</td>
+                <td className={`${td} text-slate-800`}>
+                  <span className="block max-w-[16rem] truncate print:max-w-none print:whitespace-normal">{q.obra.cliente}</span>
+                  <span className="font-mono text-xs text-slate-500">{q.obra.key}</span>
+                </td>
+                <td className={`${td} max-md:hidden print:!table-cell whitespace-nowrap font-mono text-xs text-slate-600`}>{q.caixilho}</td>
+                <td className={`${td} text-slate-700`}>{q.modelo || '—'}</td>
+                <td className={`${td} max-sm:hidden print:!table-cell text-slate-700`}>{q.tipo || '—'}</td>
+                <td className={`${td} max-sm:hidden print:!table-cell whitespace-nowrap text-slate-700`}><Medidas q={q} /></td>
+                <td className={`${td} max-lg:hidden print:!table-cell whitespace-nowrap text-slate-700`}>{q.obra.duedate ? diaMes(q.obra.duedate) : '—'}</td>
+                <td className={`${td} text-right`}><StatusBadge status={q.status} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
   );
 }

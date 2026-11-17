@@ -40,6 +40,15 @@ Texto: corpo `slate-900`, secundário `slate-600`, apoio `slate-500` (mínimo pa
 - Ícones: **lucide-react**, traço 1.75–2. Nunca emoji como ícone.
 - Raio: 8px (controles), 12px (painéis/cards/botões grandes), pílula para selos e filtros.
 
+## Surfaces
+
+Duas linguagens, por público:
+
+- **Painel TV (`/painel`) — dashboard para chamar a atenção da produção.** 1920×1080, sem rolagem, lido a metros. Uma única peça de cor domina: o bloco da **meta** em `brand` cheio, com o número-herói (104px, algarismos proporcionais), o medidor (preenchimento `emerald-400` no ritmo, `amber-400` abaixo) e a **marca branca do ritmo esperado** (meta × dias úteis decorridos / dias úteis do mês). Ao lado, quatro blocos brancos (obras, valor, caixilhos, quadros do mês). Embaixo, duas listas por data de entrega: "Entregas mais próximas" e "Próximas a produzir"; data grande à esquerda, **vermelho só para entrega vencida**, linha que não cabe inteira não aparece. Rodapé lembra o que falta preencher no Jira.
+- **Indicadores, Relatório, Leitura, Expedição — sóbrio, de sistema de estoque.** Tabelas densas com cabeçalho `slate-50`, texto 13–14px, cor só para etapa e alarme. Gráficos em SVG/HTML sem biblioteca, um só tom (`brand`) contra a linha da meta (`slate-800`, 1,5px); projeção do mês em `brand-100`. Toda série tem tabela ao lado.
+- **Relatório de quadros:** agrupa por obra ou por local; colunas de largura fixa iguais em todos os grupos; **impressão A4** com cabeçalho próprio (logo, filtros, data de emissão), cabeçalho de tabela repetido por página, chip de local vira contorno preto no papel.
+- **Botões de etapa (Leitura):** cada um na cor da etapa (`*-50` com borda `*-300`); a etapa atual fica cheia em tom `*-700` com texto branco, anel e ícone de check.
+
 ## Motion
 
 Mínimo e funcional: toast entra com leve deslize e desfoque (220ms, ease-out exponencial); spinners só onde há espera real; respeita `prefers-reduced-motion`.

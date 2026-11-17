@@ -29,6 +29,19 @@ Tirar o Jira da frente de quem produz: o operador atualiza a etapa de um quadro 
 - Leitura de QR por câmera (`html5-qrcode`), mudança de status em lote (task + subtasks), localização, arquivamento automático de expedidos.
 - Interface toda em português (pt-BR).
 
+### Metas e indicadores (definições confirmadas pelo usuário)
+
+- **Meta mensal de produção:** R$ 850.000 (variável `META_PRODUCAO_MENSAL`).
+- **Produzido no mês:** o campo **Valor** (`customfield_10391`) da obra (Épico) entra **inteiro** no mês em que a obra chega a Concluído; a data vem do histórico de status do Épico, no horário de Brasília. Obra reaberta e concluída de novo conta no mês da última conclusão.
+- **Obras/caixilhos/quadros do mês:** só obras com **Data de entrega** (`duedate`) dentro do mês corrente.
+- **Entrega no prazo:** obra expedida até a Data de entrega. **Tempo da obra:** Data de início (`customfield_10015`, ou criação) até a expedição.
+- O arquivamento noturno grava os números mensais das obras arquivadas numa propriedade do projeto no Jira (`jira-scan-app.obras-por-mes`) para o histórico não se perder.
+- Em 17/11/2026 nenhuma obra tinha Valor preenchido e 14 de 45 obras abertas estavam sem Data de entrega; as telas mostram essas lacunas em vez de esconder.
+
+### Telas por público
+
+- **Leitura** (`/`): operador no celular. **Quadros** (`/quadros`): relatório do PCP, por obra ou por local, imprimível. **Painel TV** (`/painel`): produção, meta e entregas; vira Expedição sozinho durante a leitura de etiquetas. **Indicadores** (`/indicadores`): diretoria. **Expedição** (`/expedicao`).
+
 ## Brand Commitments
 
 - Nome: Shine Windows. Logotipo "Shine" (wordmark + "PORTAS E JANELAS DE PVC"), cor `#120c30`; arquivo original enviado pelo usuário (CMYK.svg).

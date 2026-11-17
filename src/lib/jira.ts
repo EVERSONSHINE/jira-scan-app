@@ -21,6 +21,10 @@ export const CF = {
   altura:      'customfield_10063',
   modelo:      'customfield_10065',
   localizacao: 'customfield_10093',
+  /** Valor da obra em R$ (número), preenchido no Épico */
+  valor:       'customfield_10391',
+  /** Data de início da obra (date) */
+  inicio:      'customfield_10015',
 } as const;
 
 export const JIRA_HEADERS = {

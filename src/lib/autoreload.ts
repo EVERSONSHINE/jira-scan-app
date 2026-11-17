@@ -5,7 +5,7 @@
  * Recuperação da TV do chão de fábrica: a tela fica ligada o dia todo sem
  * ninguém por perto, então um estado travado só se desfaz sozinho.
  *
- * O sinal de vida é o tempo desde a última resposta boa — de /api/resumo OU de
+ * O sinal de vida é o tempo desde a última resposta boa — de /api/producao OU de
  * /api/expedicao, porque qualquer uma prova que o app ainda fala com o servidor.
  * Contagem de falhas não serviria: as duas rotas falham em ritmos diferentes e
  * normalizar isso num contador só daria trabalho.
