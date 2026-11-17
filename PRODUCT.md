@@ -31,7 +31,7 @@ Tirar o Jira da frente de quem produz: o operador atualiza a etapa de um quadro 
 
 ## Brand Commitments
 
-- Nome: Shine Windows. Logotipo "Shine" (wordmark + "PORTAS E JANELAS ESPECIAIS"), cor `#120c30`; arquivo original enviado pelo usuário (CMYK.svg).
+- Nome: Shine Windows. Logotipo "Shine" (wordmark + "PORTAS E JANELAS DE PVC"), cor `#120c30`; arquivo original enviado pelo usuário (CMYK.svg).
 - Vocabulário de cores das etapas já aprendido pela equipe e obrigatório: cinza = pendente, âmbar = produção, verde = concluído, azul = expedido. Vermelho é reservado para alarme (atrasado/parado), nunca é cor de etapa.
 
 ## Evidence on Hand
