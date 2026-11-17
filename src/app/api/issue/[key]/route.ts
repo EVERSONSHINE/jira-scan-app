@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { jiraFetch, getCustomFieldMap, cfValue } from '@/lib/jira';
+import { jiraFetch, getCustomFieldMap, cfValue, CF } from '@/lib/jira';
 
 export async function GET(
   _req: NextRequest,
@@ -45,6 +45,8 @@ export async function GET(
       largura:    cfValue(f, fields['largura']     ?? ''),
       altura:     cfValue(f, fields['altura']      ?? ''),
       modelo:     cfValue(f, fields['modelo']      ?? ''),
+      codigo:     cfValue(f, CF.codigo),
+      cor:        cfValue(f, CF.cor),
       localizacao: cfValue(f, locId ?? ''),
       localizacaoFieldId: locId ?? null,
       localizacaoOptions,

@@ -1,3 +1,76 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Tokens do sistema de Estoque (tema claro), em canais RGB para o Tailwind */
+:root {
+  --fundo: 247 248 250;        /* #F7F8FA */
+  --superficie: 255 255 255;
+  --elevado: 243 244 246;      /* #F3F4F6 cabeçalho de tabela, chips */
+  --linha: 229 231 235;        /* #E5E7EB */
+  --linha-forte: 209 213 219;  /* #D1D5DB */
+  --tinta: 26 29 38;           /* #1A1D26 */
+  --suave: 75 85 99;           /* #4B5563 texto secundário */
+  --apagado: 107 114 128;      /* #6B7280 */
+  --acento: 79 70 229;         /* #4F46E5 */
+  --acento-forte: 67 56 202;   /* #4338CA */
+  --marca: 18 12 48;           /* #120C30 azul-marinho do logo */
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    @apply bg-fundo text-tinta font-sans antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1, h2, h3 { @apply font-titulo tracking-tight; }
+  /* Números de painel alinhados em coluna */
+  .num { font-variant-numeric: tabular-nums; }
+}
+
+@layer components {
+  .cartao { @apply bg-superficie border border-linha rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.06)]; }
+  .rotulo { @apply text-[0.6875rem] font-semibold uppercase tracking-[0.05em] text-apagado; }
+  .campo {
+    @apply w-full bg-superficie border border-linha-forte rounded-lg px-3.5 py-3 text-[15px] text-tinta
+      placeholder:text-apagado focus:outline-none focus:border-acento focus:ring-[3px] focus:ring-acento/15;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold font-titulo
+      transition-colors disabled:opacity-40 disabled:cursor-not-allowed select-none;
+  }
+  .btn-primario { @apply btn bg-acento text-white hover:bg-acento-forte active:bg-acento-forte; }
+  .btn-secundario { @apply btn bg-elevado text-tinta border border-linha-forte hover:bg-linha active:bg-linha; }
+  .tabela { @apply w-full text-sm border-collapse; }
+  .tabela th {
+    @apply bg-elevado text-apagado text-[0.6875rem] font-semibold uppercase tracking-[0.05em] px-3 py-2.5
+      border-b border-linha whitespace-nowrap;
+  }
+  /* :where() zera a especificidade: um text-right na coluna numérica vence */
+  .tabela :where(th) { text-align: left; }
+  .tabela td { @apply px-3 py-2.5 border-b border-linha align-middle; }
+  .tabela tbody tr:last-child td { @apply border-b-0; }
+}
+
+/* Painel da TV: o tamanho da letra acompanha a largura da tela. TV Box
+   Android costuma reportar 1280 px de largura mesmo em painel 1080p; assim o
+   mesmo layout cabe nas duas. Só em tela deitada e larga — no celular o
+   painel vira uma lista comum. */
+@media (min-width: 1100px) and (orientation: landscape) {
+  html.palco-tv { font-size: clamp(11px, 0.8333vw, 26px); }
+}
+
+/* Impressão: só o conteúdo, sem navegação, denso como relatório */
+@media print {
+  @page { size: A4; margin: 10mm 8mm; }
+  /* Tudo no app é em rem: baixar a raiz compacta a página inteira por igual */
+  html { font-size: 10.5px !important; }
+  html, body { background: #fff !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tabela th, .tabela td { padding: 0.3rem 0.5rem !important; }
+  .nao-imprimir { display: none !important; }
+  .tabela th { background: #f3f4f6 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tabela tr { break-inside: avoid; }
+  .quebra-evitar { break-inside: avoid; }
+  thead { display: table-header-group; }
+}

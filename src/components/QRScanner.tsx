@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import Icone from './Icone';
 
 interface Props {
   onScan: (result: string) => void;
@@ -45,21 +46,21 @@ export default function QRScanner({ onScan, onClose }: Props) {
   }, [onScan]);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 flex flex-col items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-800">
-          <span className="text-white font-semibold">Escanear QR Code</span>
-          <button
-            onClick={onClose}
-            className="text-white text-2xl leading-none hover:text-slate-300"
-          >
-            ×
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 bg-black flex flex-col" role="dialog" aria-label="Ler etiqueta">
+      <div className="flex items-center justify-between px-4 h-16 text-white shrink-0">
+        <span className="font-titulo font-bold text-lg">Aponte para o QR da etiqueta</span>
+        <button onClick={onClose} className="grid place-items-center w-12 h-12 -mr-2 rounded-full active:bg-white/10" aria-label="Fechar câmera">
+          <Icone nome="x" className="w-7 h-7" />
+        </button>
+      </div>
+      <div className="flex-1 grid place-items-center px-4 pb-8">
         {error ? (
-          <div className="p-6 text-red-600 text-sm">{error}</div>
+          <div className="max-w-sm rounded-xl bg-white p-5 text-sm text-red-700">
+            <p className="font-semibold mb-1">Não foi possível abrir a câmera</p>
+            <p className="text-red-600/80 break-words">{error}</p>
+          </div>
         ) : (
-          <div id="qr-reader" className="w-full" />
+          <div id="qr-reader" className="w-full max-w-md overflow-hidden rounded-xl" />
         )}
       </div>
     </div>

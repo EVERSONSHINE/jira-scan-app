@@ -21,6 +21,9 @@ export const CF = {
   altura:      'customfield_10063',
   modelo:      'customfield_10065',
   localizacao: 'customfield_10093',
+  codigo:      'customfield_10291',
+  /** Valor da obra (R$), preenchido no Épico */
+  valor:       'customfield_10391',
 } as const;
 
 export const JIRA_HEADERS = {
@@ -354,15 +357,22 @@ export interface JiraIssueLite {
   fields: Record<string, unknown>;
 }
 
-/** Busca todas as issues de um JQL, paginando via nextPageToken (endpoint /search/jql) */
-export async function searchAllIssues(jql: string, fields: string[]): Promise<JiraIssueLite[]> {
+/**
+ * Busca todas as issues de um JQL, paginando via nextPageToken (endpoint /search/jql).
+ * O teto de páginas é válvula de segurança; quem carrega o projeto inteiro
+ * pede mais (com o arquivamento no fechamento do mês, o projeto vivo cresce).
+ */
+export async function searchAllIssues(
+  jql: string,
+  fields: string[],
+  opts: { porPagina?: number; maxPaginas?: number } = {},
+): Promise<JiraIssueLite[]> {
   const issues: JiraIssueLite[] = [];
   let nextPageToken: string | null = null;
-  // Teto de 30 páginas (~3000 issues) como válvula de segurança
-  for (let page = 0; page < 30; page++) {
+  for (let page = 0; page < (opts.maxPaginas ?? 30); page++) {
     const params = new URLSearchParams({
       jql,
-      maxResults: '100',
+      maxResults: String(opts.porPagina ?? 100),
       fields: fields.join(','),
     });
     if (nextPageToken) params.set('nextPageToken', nextPageToken);

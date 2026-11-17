@@ -1,56 +1,5 @@
-import {
-  jiraFetch, searchAllIssues, listEpicSubtasks, getExpeditedAt, emLotes,
-  type JiraIssueLite,
-} from './jira';
+import { jiraFetch, searchAllIssues, listEpicSubtasks, type JiraIssueLite } from './jira';
 import { canonicalStatus } from './status';
-
-// ─── Anotação dos expedidos que saem da busca ────────────────────────────────
-//
-// Arquivado some da JQL, e o "expedidos nos últimos 7 dias" do Resumo é uma
-// JQL. Antes de arquivar, a hora em que cada subtask foi expedida vai para uma
-// propriedade do projeto no Jira; o Resumo soma isso à contagem da busca.
-
-const PROPRIEDADE = 'jira-scan-app.expedidos-arquivados';
-/** Um dia além da janela de 7 dias do Resumo */
-const RETER_MS = 8 * 24 * 3600_000;
-
-/**
- * Subtasks arquivadas por hora UTC em que foram expedidas ("2026-09-24T21").
- * Resolução de 1h: a janela do Resumo pode errar por até uma hora na borda.
- */
-type Horas = Record<string, number>;
-
-const hora = (d: Date) => d.toISOString().slice(0, 13);
-
-export async function lerExpedidosArquivados(project: string): Promise<Horas> {
-  try {
-    const r = await jiraFetch(`/rest/api/3/project/${project}/properties/${PROPRIEDADE}`);
-    return (r?.value?.horas ?? {}) as Horas;
-  } catch {
-    return {}; // 404 até o primeiro arquivamento
-  }
-}
-
-/** Subtasks arquivadas que foram expedidas a partir de `desde` */
-export function somarDesde(horas: Horas, desde: Date): number {
-  const corte = hora(desde);
-  return Object.entries(horas).reduce((s, [h, n]) => (h >= corte ? s + n : s), 0);
-}
-
-async function anotar(project: string, instantes: string[]) {
-  if (instantes.length === 0) return;
-  const horas = await lerExpedidosArquivados(project);
-  for (const t of instantes) {
-    const h = hora(new Date(t));
-    horas[h] = (horas[h] ?? 0) + 1;
-  }
-  const corte = hora(new Date(Date.now() - RETER_MS));
-  for (const h of Object.keys(horas)) if (h < corte) delete horas[h];
-  await jiraFetch(`/rest/api/3/project/${project}/properties/${PROPRIEDADE}`, {
-    method: 'PUT',
-    body: JSON.stringify({ horas }),
-  });
-}
 
 // ─── Arquivamento ────────────────────────────────────────────────────────────
 
@@ -80,7 +29,7 @@ async function arquivarIssues(keys: string[]) {
 
 export interface ResultadoArquivo {
   simulacao: boolean;
-  arquivados: Array<{ epico: string; resumo: string; tickets: number; expedidosAnotados: number }>;
+  arquivados: Array<{ epico: string; resumo: string; tickets: number }>;
   pulados: Array<{ epico: string; motivo: string }>;
   erros: Array<{ epico: string; erro: string }>;
   /** Parou pelo limite de tempo; o resto fica para a próxima noite */
@@ -90,8 +39,13 @@ export interface ResultadoArquivo {
 /**
  * Arquiva os projetos cuja expedição terminou: Épico, Tasks e Subtasks todos
  * em Expedido. Confere tudo na hora — alguém pode ter voltado um status desde
- * que o Épico foi para Expedido. Pula o que terminou hoje, para a TV e o
- * "expedidos hoje" do Resumo seguirem certos.
+ * que o Épico foi para Expedido.
+ *
+ * Só arquiva o que terminou de expedir ANTES do mês corrente. Arquivado some
+ * da busca, e Painel e Indicadores medem o mês pela busca (valor produzido,
+ * caixilhos, obras entregues): uma obra produzida e expedida no dia 5 não pode
+ * sumir da meta no dia 6. O resultado do mês que fechou já foi gravado antes
+ * (lib/fechamento.ts — o cron só chama isto depois de garantir o fechamento).
  *
  * Vão para o Jira o Épico e as Tasks, explicitamente. Subtask não: o Jira
  * recusa arquivá-la direto ("Issue is a subtask") e a arquiva junto com a Task
@@ -102,7 +56,7 @@ export interface ResultadoArquivo {
  */
 export async function arquivarExpedidos(
   project: string,
-  opts: { simular?: boolean; somente?: string; incluirHoje?: boolean; prazoMs?: number } = {},
+  opts: { simular?: boolean; somente?: string; ignorarMes?: boolean; prazoMs?: number } = {},
 ): Promise<ResultadoArquivo> {
   const inicio = Date.now();
   const prazo = opts.prazoMs ?? 240_000;
@@ -139,33 +93,13 @@ export async function arquivarExpedidos(
       }
 
       const keys = [e.key, ...tasks.map((i) => i.key), ...subs.map((i) => i.key)];
-      if (!opts.incluirHoje && (await buscarEntre(keys, 'status CHANGED TO "Expedido" AFTER startOfDay()')).length > 0) {
-        res.pulados.push({ epico: e.key, motivo: 'terminou de expedir hoje' });
+      if (!opts.ignorarMes && (await buscarEntre(keys, 'status CHANGED TO "Expedido" AFTER startOfMonth()')).length > 0) {
+        res.pulados.push({ epico: e.key, motivo: 'terminou de expedir neste mês (arquiva depois do fechamento)' });
         continue;
       }
 
-      // Só as subtasks expedidas dentro da janela do Resumo precisam de
-      // horário (changelog); um projeto antigo não custa chamada nenhuma
-      const recentes = subs.length
-        ? await buscarEntre(subs.map((i) => i.key), 'status CHANGED TO "Expedido" AFTER -8d')
-        : [];
-      const instantes = (await emLotes(recentes, 5, (s) => getExpeditedAt(s.key)))
-        .filter((t): t is string => !!t && Date.parse(t) > Date.now() - RETER_MS);
-
-      let anotados = instantes.length;
-      if (!opts.simular) {
-        await arquivarIssues([e.key, ...tasks.map((i) => i.key)]);
-        // Depois de arquivar: se falhar aqui, o Resumo conta a menos, e não
-        // em dobro para sempre (o que aconteceria anotando antes e o
-        // arquivamento falhando)
-        try {
-          await anotar(project, instantes);
-        } catch (err) {
-          anotados = 0;
-          res.erros.push({ epico: e.key, erro: `arquivado, mas a anotação dos expedidos falhou: ${String(err).slice(0, 200)}` });
-        }
-      }
-      res.arquivados.push({ epico: e.key, resumo, tickets: keys.length, expedidosAnotados: anotados });
+      if (!opts.simular) await arquivarIssues([e.key, ...tasks.map((i) => i.key)]);
+      res.arquivados.push({ epico: e.key, resumo, tickets: keys.length });
     } catch (err) {
       res.erros.push({ epico: e.key, erro: String(err).slice(0, 300) });
     }

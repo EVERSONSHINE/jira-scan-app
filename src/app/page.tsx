@@ -1,7 +1,11 @@
 'use client';
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { STATUS_ORDER, canonicalStatus } from '@/lib/status';
+import { etapa } from '@/lib/etapas';
+import AppShell from '@/components/AppShell';
+import Icone from '@/components/Icone';
+import { EtapaChip } from '@/components/Etapa';
 
 const QRScanner = dynamic(() => import('@/components/QRScanner'), { ssr: false });
 
@@ -25,6 +29,8 @@ interface IssueDetail {
   largura: string;
   altura: string;
   modelo: string;
+  codigo: string;
+  cor: string;
   localizacao: string;
   localizacaoFieldId: string | null;
   localizacaoOptions: Array<{ id: string; value: string }>;
@@ -51,37 +57,14 @@ interface ResultadoLote {
   motivo?: string;
 }
 
-// ─── Helpers de status ────────────────────────────────────────────────────────
-
-const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
-  'Tarefas Pendentes': { bg: 'bg-slate-100',  text: 'text-slate-700',  border: 'border-slate-300' },
-  'Em Andamento':      { bg: 'bg-amber-100',  text: 'text-amber-700',  border: 'border-amber-400' },
-  'Concluido':         { bg: 'bg-emerald-100',text: 'text-emerald-700',border: 'border-emerald-400' },
-  'Expedido':          { bg: 'bg-blue-100',   text: 'text-blue-700',   border: 'border-blue-400'   },
-};
-
-const STATUS_ACTIVE: Record<string, string> = {
-  'Tarefas Pendentes': 'bg-slate-500  text-white border-slate-500',
-  'Em Andamento':      'bg-amber-500  text-white border-amber-500',
-  'Concluido':         'bg-emerald-500 text-white border-emerald-500',
-  'Expedido':          'bg-blue-600   text-white border-blue-600',
-};
-
 const STATUSES: readonly string[] = STATUS_ORDER;
 
-function StatusBadge({ status }: { status: string }) {
-  const s = STATUS_STYLES[status] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-300' };
-  return (
-    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium border ${s.bg} ${s.text} ${s.border}`}>
-      {status}
-    </span>
-  );
-}
+/** Compara pelo canônico: subtasks dizem "Tarefas pendentes", o app "Tarefas Pendentes" */
+const mesmoStatus = (a: string, b: string) => canonicalStatus(a) === canonicalStatus(b);
 
 // ─── Componente principal ────────────────────────────────────────────────────
 
 export default function Home() {
-  const [tab, setTab]             = useState<'scan' | 'search'>('scan');
   const [showScanner, setShowScanner] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -195,9 +178,7 @@ export default function Home() {
   // ── Atualiza status ─────────────────────────────────────────────────────────
   const handleStatusChange = async (statusName: string) => {
     if (!issue || updatingStatus) return;
-    const tr = transitions.find(
-      (t) => t.toStatus.toLowerCase() === statusName.toLowerCase(),
-    );
+    const tr = transitions.find((t) => mesmoStatus(t.toStatus, statusName));
     // Em lote, a lida já no status escolhido não precisa de transição: o
     // clique ainda serve para levar as irmãs até ele
     const jaNoStatus = canonicalStatus(issue.status) === canonicalStatus(statusName);
@@ -295,314 +276,272 @@ export default function Home() {
   };
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  const statusAtual = issue ? canonicalStatus(issue.status) : '';
+
   return (
-    <div className="max-w-lg mx-auto min-h-screen flex flex-col">
+    <AppShell
+      titulo={issue ? issue.key : 'Leitura de etiquetas'}
+      subtitulo={issue ? (issue.cliente || issue.summary) : 'Leia o QR da peça ou digite o número'}
+      largura="max-w-5xl"
+      acoes={issue && (
+        <button onClick={handleClear} className="btn-secundario whitespace-nowrap">
+          <Icone nome="qr" className="w-4 h-4" /> Nova<span className="hidden sm:inline"> leitura</span>
+        </button>
+      )}
+    >
+      {/* ── Início: ler ou buscar ── */}
+      {!issue && !loadingIssue && (
+        <section className="max-w-xl mx-auto space-y-4">
+          <button
+            onClick={() => setShowScanner(true)}
+            className="w-full rounded-2xl bg-marca text-white py-9 flex flex-col items-center gap-3
+              active:bg-black transition-colors shadow-sm"
+          >
+            <Icone nome="qr" className="w-14 h-14" />
+            <span className="font-titulo text-2xl font-bold">Ler etiqueta</span>
+            <span className="text-sm text-white/70">Abre a câmera traseira</span>
+          </button>
 
-      {/* Header */}
-      <header className="bg-slate-800 text-white px-4 py-4 flex items-center justify-between sticky top-0 z-10 shadow">
-        <div>
-          <h1 className="font-bold text-lg leading-tight">Shine Windows</h1>
-          <p className="text-slate-400 text-xs">Controle de Produção</p>
-        </div>
-        <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
-          {issue ? (
-            <button onClick={handleClear} className="text-slate-300 text-sm underline">
-              Nova leitura
-            </button>
-          ) : (
-            <>
-              <a href="/quadros" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📦 Quadros
-              </a>
-              {/* Tela da TV: alterna entre resumo e expedição sozinha */}
-              <a href="/painel" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📺 Painel
-              </a>
-              <a href="/expedicao" className="text-slate-300 text-xs underline whitespace-nowrap">
-                🚚 Expedição
-              </a>
-              <a href="/resumo" className="text-slate-300 text-xs underline whitespace-nowrap">
-                📊 Resumo
-              </a>
-            </>
-          )}
-        </div>
-      </header>
-
-      <main className="flex-1 p-4 space-y-4">
-
-        {/* Tabs (apenas quando não há issue carregada) */}
-        {!issue && !loadingIssue && (
-          <>
-            <div className="flex rounded-xl overflow-hidden border border-slate-300 bg-white">
-              {(['scan', 'search'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`flex-1 py-3 text-sm font-medium transition-colors ${
-                    tab === t ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {t === 'scan' ? '📷  Escanear QR' : '🔍  Buscar'}
-                </button>
-              ))}
+          <div className="cartao p-4 space-y-3">
+            <label htmlFor="busca-peca" className="rotulo block">Ou digite o número da peça</label>
+            <div className="flex items-stretch rounded-lg border border-linha-forte overflow-hidden
+              focus-within:border-acento focus-within:ring-[3px] focus-within:ring-acento/15">
+              <span className="px-3.5 grid place-items-center bg-elevado text-suave font-semibold text-[15px] border-r border-linha-forte select-none">
+                PROJ-
+              </span>
+              <input
+                id="busca-peca"
+                type="number"
+                inputMode="numeric"
+                placeholder="4375"
+                value={searchQuery.replace(/^PROJ-/i, '')}
+                onChange={(e) => handleSearchChange(e.target.value ? `PROJ-${e.target.value}` : '')}
+                className="flex-1 min-w-0 px-3.5 py-3 text-lg font-semibold num outline-none bg-superficie"
+              />
             </div>
-
-            {/* Aba Scan */}
-            {tab === 'scan' && (
-              <div className="bg-white rounded-2xl p-6 text-center shadow-sm border border-slate-200">
-                <div className="text-6xl mb-4">📷</div>
-                <p className="text-slate-600 text-sm mb-5">
-                  Aponte a câmera para o QR code da etiqueta do quadro.
-                </p>
-                <button
-                  onClick={() => setShowScanner(true)}
-                  className="w-full bg-slate-800 text-white py-4 rounded-xl font-semibold text-lg active:bg-slate-700 transition-colors"
-                >
-                  Iniciar Scanner
-                </button>
-              </div>
+            {searching && <p className="text-sm text-apagado">Buscando…</p>}
+            {searchResults.length > 0 && (
+              <ul className="divide-y divide-linha -mx-1">
+                {searchResults.map((r) => (
+                  <li key={r.key}>
+                    <button
+                      onClick={() => { setSearchQuery(''); setSearchResults([]); loadIssue(r.key); }}
+                      className="w-full text-left px-1 py-3 flex items-center gap-3 active:bg-elevado rounded-lg"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold num">{r.key}</p>
+                        <p className="text-xs text-apagado truncate">{r.summary}</p>
+                      </div>
+                      <EtapaChip status={canonicalStatus(r.status)} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
-
-            {/* Aba Buscar */}
-            {tab === 'search' && (
-              <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 space-y-3">
-                <div className="flex items-center border border-slate-300 rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-slate-400">
-                  <span className="px-3 py-3 bg-slate-100 text-slate-500 font-mono text-sm border-r border-slate-300 select-none whitespace-nowrap">
-                    PROJ-
-                  </span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    placeholder="184"
-                    value={searchQuery.replace(/^PROJ-/i, '')}
-                    onChange={(e) => handleSearchChange(e.target.value ? `PROJ-${e.target.value}` : '')}
-                    className="flex-1 px-3 py-3 text-sm outline-none bg-white"
-                  />
-                </div>
-                {searching && (
-                  <p className="text-center text-slate-400 text-sm py-2">Buscando…</p>
-                )}
-                {searchResults.length > 0 && (
-                  <ul className="divide-y divide-slate-100">
-                    {searchResults.map((r) => (
-                      <li key={r.key}>
-                        <button
-                          onClick={() => { setSearchQuery(''); setSearchResults([]); loadIssue(r.key); }}
-                          className="w-full text-left px-2 py-3 hover:bg-slate-50 active:bg-slate-100 rounded-lg"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono font-bold text-slate-800 text-sm">{r.key}</span>
-                            <StatusBadge status={r.status} />
-                          </div>
-                          <p className="text-slate-500 text-xs mt-0.5 truncate">{r.summary}</p>
-                          {r.parent && <p className="text-slate-400 text-xs">Task: {r.parent}</p>}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* Loading */}
-        {loadingIssue && (
-          <div className="bg-white rounded-2xl p-10 text-center shadow-sm border border-slate-200">
-            <div className="text-4xl animate-spin mb-3">⏳</div>
-            <p className="text-slate-500 text-sm">Carregando quadro…</p>
           </div>
-        )}
+        </section>
+      )}
 
-        {/* Painel do Issue */}
-        {issue && !loadingIssue && (
+      {/* ── Carregando ── */}
+      {loadingIssue && (
+        <div className="max-w-xl mx-auto cartao p-10 text-center space-y-3" aria-live="polite">
+          <div className="mx-auto w-8 h-8 rounded-full border-[3px] border-linha border-t-acento animate-spin" />
+          <p className="text-suave">Carregando peça…</p>
+        </div>
+      )}
+
+      {/* ── Peça lida ── */}
+      {issue && !loadingIssue && (
+        <div className="grid gap-4 md:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] md:items-start">
+
           <div className="space-y-4">
-
-            {/* Card de identificação */}
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-              <div className="bg-slate-800 px-4 py-3 flex items-center justify-between">
-                <span className="font-mono font-bold text-white text-lg">{issue.key}</span>
-                <StatusBadge status={issue.status} />
-              </div>
-              <div className="px-4 py-3 space-y-1 text-sm">
-                <p className="font-semibold text-slate-800">{issue.summary}</p>
-                {issue.parent && <p className="text-slate-500 text-xs">Task: {issue.parent}</p>}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-2 text-xs text-slate-600">
-                  {issue.cliente   && <span><span className="font-medium">Cliente:</span> {issue.cliente}</span>}
-                  {issue.documento && <span><span className="font-medium">Doc:</span> {issue.documento}</span>}
-                  {issue.tipo      && <span><span className="font-medium">Tipo:</span> {issue.tipo}</span>}
-                  {issue.modelo    && <span><span className="font-medium">Modelo:</span> {issue.modelo}</span>}
-                  {(issue.largura || issue.altura) && (
-                    <span className="col-span-2 font-semibold text-slate-700">
-                      📐 {issue.largura} × {issue.altura} mm
-                    </span>
-                  )}
+            {/* Identificação */}
+            <section className="cartao overflow-hidden">
+              <div className="px-4 pt-4 pb-3 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-titulo text-2xl font-bold num">{issue.key}</span>
+                  <EtapaChip status={statusAtual} />
                 </div>
+                <p className="font-semibold leading-snug">{issue.cliente || issue.summary}</p>
+                {issue.documento && <p className="text-sm text-apagado">Documento {issue.documento}</p>}
               </div>
-            </div>
+              <dl className="grid grid-cols-2 border-t border-linha text-sm">
+                {[
+                  ['Caixilho', issue.tipo],
+                  ['Modelo', issue.modelo],
+                  ['Medidas', (issue.largura || issue.altura) ? `${issue.largura} × ${issue.altura} mm` : ''],
+                  ['Código', issue.codigo],
+                  ['Cor', issue.cor],
+                  ['Task', issue.parent],
+                ].filter(([, v]) => v).map(([k, v], i) => (
+                  <div key={k} className={`px-4 py-2.5 border-linha ${i % 2 === 0 ? 'border-r' : ''} ${i >= 2 ? 'border-t' : ''}`}>
+                    <dt className="rotulo">{k}</dt>
+                    <dd className="font-semibold mt-0.5 num break-words">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
 
             {/* Aplicar a todas as subtasks da Task */}
             {lote && (
-              <div className={`bg-white rounded-2xl shadow-sm border-2 p-4 ${emLote ? 'border-amber-400' : 'border-slate-200'}`}>
+              <section className={`rounded-xl border-2 bg-superficie p-4 ${emLote ? 'border-amber-500' : 'border-linha'}`}>
                 <label className="flex items-start gap-3 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={emLote}
                     onChange={(e) => { setEmLote(e.target.checked); setNaoMudaram([]); }}
                     disabled={updatingStatus || updatingLoc}
-                    className="mt-0.5 w-5 h-5 shrink-0 accent-amber-500"
+                    className="mt-0.5 w-6 h-6 shrink-0 accent-amber-500"
                   />
-                  <span className="text-sm text-slate-700">
-                    Aplicar a todas as <b>{lote.subtasks.length} subtasks</b> da task{' '}
-                    <span className="font-mono font-semibold">{lote.task}</span>
-                    <span className="block text-xs text-slate-500 mt-0.5">
-                      Status e localização valem para todas, para frente ou para trás.
+                  <span className="text-sm">
+                    <b>Aplicar às {lote.subtasks.length} peças</b> do caixilho{' '}
+                    <span className="font-semibold num">{lote.task}</span>
+                    <span className="block text-xs text-apagado mt-0.5">
+                      Etapa e localização valem para todas, para frente ou para trás.
                     </span>
                   </span>
                 </label>
 
-                {/* O que vai mudar — visível só com a opção ligada */}
                 {emLote && (
-                  <ul className="mt-3 divide-y divide-slate-100 border-t border-slate-100 text-xs">
+                  <ul className="mt-3 divide-y divide-linha border-t border-linha text-sm">
                     {lote.subtasks.map((s) => (
-                      <li key={s.key} className="flex items-center gap-2 py-1.5">
-                        <span className={`font-mono ${s.key === issue.key ? 'font-bold text-slate-800' : 'text-slate-600'}`}>
-                          {s.key}
-                        </span>
-                        {s.modelo && <span className="text-slate-500">{s.modelo}</span>}
+                      <li key={s.key} className="flex items-center gap-2 py-2">
+                        <span className={`num ${s.key === issue.key ? 'font-bold' : 'text-suave'}`}>{s.key}</span>
+                        {s.modelo && <span className="text-apagado">{s.modelo}</span>}
                         <span className="ml-auto flex items-center gap-2">
-                          {s.localizacao && <span className="font-mono text-slate-500">{s.localizacao}</span>}
-                          <StatusBadge status={s.status} />
+                          {s.localizacao && <span className="font-semibold text-suave">{s.localizacao}</span>}
+                          <EtapaChip status={canonicalStatus(s.status)} curto />
                         </span>
                       </li>
                     ))}
                   </ul>
                 )}
 
-                {/* Irmãs que não mudaram na última ação em lote */}
                 {naoMudaram.length > 0 && (
-                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-300 px-3 py-2 text-xs text-amber-800">
+                  <div className="mt-3 rounded-lg bg-amber-50 border border-amber-300 px-3 py-2 text-sm text-amber-900">
                     <p className="font-semibold mb-1">
-                      {naoMudaram.length} {naoMudaram.length === 1 ? 'subtask não mudou' : 'subtasks não mudaram'}
+                      {naoMudaram.length} {naoMudaram.length === 1 ? 'peça não mudou' : 'peças não mudaram'}
                     </p>
-                    <ul className="space-y-0.5">
+                    <ul className="space-y-0.5 text-xs">
                       {naoMudaram.map((r) => (
-                        <li key={r.key}>
-                          <span className="font-mono">{r.key}</span> — {r.motivo ?? 'erro'}
-                        </li>
+                        <li key={r.key}><span className="num font-semibold">{r.key}</span> — {r.motivo ?? 'erro'}</li>
                       ))}
                     </ul>
                   </div>
                 )}
-              </div>
+              </section>
             )}
+          </div>
 
-            {/* Alterar Status */}
-            <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
-              <h2 className="font-semibold text-slate-700 text-sm mb-3">
-                Alterar Status
-                {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
-              </h2>
-              <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-4">
+            {/* Etapa: um botão sólido por cor, para achar de relance */}
+            <section className={`cartao p-4 ${emLoteAtivo ? '!border-2 !border-amber-500' : ''}`}>
+              <div className="flex items-baseline justify-between mb-3">
+                <h2 className="font-titulo font-bold text-base">Mudar etapa</h2>
+                {emLoteAtivo
+                  ? <span className="text-xs font-semibold text-amber-700">em lote · {lote?.subtasks.length} peças</span>
+                  : updatingStatus && <span className="text-xs text-apagado">Atualizando…</span>}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 {STATUSES.map((s) => {
-                  const isActive = issue.status === s;
-                  const isAvailable = transitions.some((t) => t.toStatus.toLowerCase() === s.toLowerCase());
-                  const style = STATUS_STYLES[s] ?? { bg: 'bg-gray-100', text: 'text-gray-600', border: 'border-gray-200' };
-                  const activeStyle = STATUS_ACTIVE[s] ?? 'bg-gray-500 text-white border-gray-500';
-
+                  const e = etapa(s);
+                  const atual = statusAtual === s;
+                  const disponivel = transitions.some((t) => mesmoStatus(t.toStatus, s));
+                  // Em lote, a etapa atual ainda serve para levar as irmãs até ela
+                  const clicavel = !updatingStatus && (disponivel || (atual && emLoteAtivo));
                   return (
                     <button
                       key={s}
-                      disabled={updatingStatus || (!isAvailable && !isActive)}
+                      disabled={!clicavel}
                       onClick={() => handleStatusChange(s)}
-                      className={`py-3 px-2 rounded-xl border-2 text-sm font-medium transition-all
-                        ${isActive ? activeStyle : `${style.bg} ${style.text} ${style.border}`}
-                        ${!isAvailable && !isActive ? 'opacity-40 cursor-not-allowed' : 'active:scale-95'}
-                      `}
+                      aria-pressed={atual}
+                      className={`relative rounded-xl min-h-[84px] px-3.5 py-3 text-left transition-transform ${e.solido}
+                        ${atual ? 'ring-[3px] ring-offset-2 ring-tinta' : ''}
+                        ${!clicavel && !atual ? 'opacity-30' : 'active:scale-[0.97]'}
+                        disabled:cursor-not-allowed`}
                     >
-                      {isActive && '✓ '}{s}
+                      <span className="block text-[11px] font-bold uppercase tracking-wider opacity-80">Etapa {e.passo}</span>
+                      <span className="block font-titulo text-xl font-bold leading-tight mt-0.5">{e.rotulo}</span>
+                      {atual && (
+                        <span className="absolute top-2.5 right-2.5 inline-flex items-center gap-1 rounded-full bg-white text-tinta text-[11px] font-bold pl-1.5 pr-2 py-0.5">
+                          <Icone nome="check" className="w-3.5 h-3.5" forte /> Atual
+                        </span>
+                      )}
                     </button>
                   );
                 })}
               </div>
-              {updatingStatus && (
-                <p className="text-center text-slate-400 text-xs mt-2">Atualizando…</p>
-              )}
-            </div>
+            </section>
 
-            {/* Alterar Localização */}
+            {/* Localização */}
             {issue.localizacaoFieldId && (
-              <div className={`bg-white rounded-2xl shadow-sm p-4 ${emLoteAtivo ? 'border-2 border-amber-400' : 'border border-slate-200'}`}>
-                <h2 className="font-semibold text-slate-700 text-sm mb-3">
-                  Localização
-                  {emLoteAtivo && <span className="ml-2 font-normal text-amber-700">em lote · {lote?.subtasks.length} subtasks</span>}
-                </h2>
-                {issue.localizacaoOptions.length > 0 ? (
-                  <select
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 bg-white"
+              <section className={`cartao p-4 ${emLoteAtivo ? '!border-2 !border-amber-500' : ''}`}>
+                <div className="flex items-baseline justify-between mb-3">
+                  <h2 className="font-titulo font-bold text-base">Localização</h2>
+                  <span className="text-xs text-apagado">
+                    {emLoteAtivo
+                      ? <span className="font-semibold text-amber-700">em lote · {lote?.subtasks.length} peças</span>
+                      : <>Atual: <b className="text-tinta">{issue.localizacao || '—'}</b></>}
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  {issue.localizacaoOptions.length > 0 ? (
+                    <select
+                      value={selectedLoc}
+                      onChange={(e) => setSelectedLoc(e.target.value)}
+                      className="campo font-semibold"
+                      aria-label="Localização"
+                    >
+                      <option value="">— escolha —</option>
+                      {issue.localizacaoOptions.map((o) => (
+                        <option key={o.id} value={o.value}>{o.value}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={selectedLoc}
+                      onChange={(e) => setSelectedLoc(e.target.value)}
+                      placeholder="Ex.: C07"
+                      className="campo font-semibold"
+                      aria-label="Localização"
+                    />
+                  )}
+                  <button
+                    disabled={
+                      updatingLoc || (emLoteAtivo
+                        // Em lote a lida pode já estar certa e as irmãs não; vazio
+                        // em lote apagaria a localização da task inteira
+                        ? !selectedLoc || !!lote?.subtasks.every((s) => s.localizacao === selectedLoc)
+                        : selectedLoc === issue.localizacao)
+                    }
+                    onClick={handleLocalizacaoSave}
+                    className="btn-primario px-5 shrink-0"
                   >
-                    <option value="">— selecione —</option>
-                    {issue.localizacaoOptions.map((o) => (
-                      <option key={o.id} value={o.value}>{o.value}</option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    type="text"
-                    value={selectedLoc}
-                    onChange={(e) => setSelectedLoc(e.target.value)}
-                    placeholder="Digite a localização"
-                    className="w-full border border-slate-300 rounded-xl px-3 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
-                  />
-                )}
-                <button
-                  disabled={
-                    updatingLoc || (emLoteAtivo
-                      // Em lote a lida pode já estar certa e as irmãs não; vazio
-                      // em lote apagaria a localização da task inteira
-                      ? !selectedLoc || !!lote?.subtasks.every((s) => s.localizacao === selectedLoc)
-                      : selectedLoc === issue.localizacao)
-                  }
-                  onClick={handleLocalizacaoSave}
-                  className="mt-3 w-full bg-slate-800 text-white py-3 rounded-xl font-medium text-sm
-                    disabled:opacity-40 active:bg-slate-700 transition-colors"
-                >
-                  {updatingLoc
-                    ? 'Salvando…'
-                    : emLoteAtivo ? `Salvar em ${lote?.subtasks.length} subtasks` : 'Salvar Localização'}
-                </button>
-                {issue.localizacao && (
-                  <p className="text-slate-400 text-xs mt-1 text-center">
-                    Atual: <span className="font-medium text-slate-600">{issue.localizacao}</span>
-                  </p>
-                )}
-              </div>
+                    {updatingLoc ? 'Salvando…' : emLoteAtivo ? `Salvar em ${lote?.subtasks.length}` : 'Salvar'}
+                  </button>
+                </div>
+              </section>
             )}
 
+            <button onClick={() => { handleClear(); setShowScanner(true); }} className="btn-secundario w-full py-3.5 text-base">
+              <Icone nome="qr" /> Ler próxima etiqueta
+            </button>
           </div>
-        )}
-      </main>
-
-      {/* Scanner modal */}
-      {showScanner && (
-        <QRScanner
-          onScan={handleScan}
-          onClose={() => setShowScanner(false)}
-        />
+        </div>
       )}
 
-      {/* Toast */}
+      {showScanner && <QRScanner onScan={handleScan} onClose={() => setShowScanner(false)} />}
+
+      {/* Aviso */}
       {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm
-          px-5 py-3 rounded-2xl shadow-lg z-50 w-max max-w-[calc(100vw-2rem)] text-center">
+        <div role="status" className="fixed bottom-24 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 bg-tinta text-white text-sm
+          px-5 py-3 rounded-xl shadow-lg w-max max-w-[calc(100vw-2rem)] text-center">
           {/* Quebra linha em vez de vazar da tela: o resumo do lote e a
               cascata passam da largura de um celular */}
           {toast}
         </div>
       )}
-    </div>
+    </AppShell>
   );
 }

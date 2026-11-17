@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { arquivarExpedidos } from '@/lib/arquivo';
+import { garantirFechamento } from '@/lib/fechamento';
 
 export const dynamic = 'force-dynamic';
 // Um primeiro arquivamento pode pegar muitos projetos antigos de uma vez;
@@ -7,16 +8,20 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 /**
- * Arquiva os projetos cuja expedição terminou (Épico, Tasks e Subtasks em
- * Expedido). Chamada pelo cron da Vercel de madrugada — vercel.json,
- * "0 6 * * *" em UTC = 3h de Brasília.
+ * Fecha o mês anterior e arquiva os projetos cuja expedição terminou antes do
+ * mês corrente (Épico, Tasks e Subtasks em Expedido). Chamada pelo cron da
+ * Vercel de madrugada — vercel.json, "0 6 * * *" em UTC = 3h de Brasília.
+ *
+ * O fechamento vem primeiro e é condição: ele grava o resultado do mês
+ * (valor produzido, caixilhos, entregas) lendo o Jira com as obras ainda
+ * vivas. Sem ele gravado, arquivar apagaria o histórico dos Indicadores.
  *
  * Exige o CRON_SECRET, que a Vercel manda no Authorization de toda chamada de
  * cron: sem ele, qualquer um na internet dispararia o arquivamento.
  *
  *   ?simular=1                  só lista o que seria arquivado, sem escrever
  *   ?somente=PROJ-123           um épico só (teste dirigido)
- *   ?somente=…&incluirHoje=1    não pula o que terminou hoje (só com somente)
+ *   ?somente=…&incluirMes=1     não pula o que terminou neste mês (só com somente)
  */
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -30,15 +35,29 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'somente deve ser uma chave de épico' }, { status: 400 });
   }
 
+  const project = process.env.JIRA_PROJECT_KEY ?? '';
+  const simular = p.get('simular') === '1';
+
+  let fechamento;
   try {
-    const resultado = await arquivarExpedidos(process.env.JIRA_PROJECT_KEY ?? '', {
-      simular: p.get('simular') === '1',
+    fechamento = await garantirFechamento(project, { simular });
+  } catch (e) {
+    console.log('fechamento-falhou', String(e));
+    return NextResponse.json(
+      { error: `fechamento do mês falhou, nada foi arquivado: ${String(e)}` },
+      { status: 500 },
+    );
+  }
+
+  try {
+    const resultado = await arquivarExpedidos(project, {
+      simular,
       somente,
-      incluirHoje: !!somente && p.get('incluirHoje') === '1',
+      ignorarMes: !!somente && p.get('incluirMes') === '1',
     });
     // Vai para os logs da Vercel: é o registro do que foi arquivado em cada noite
-    console.log('arquivar-expedidos', JSON.stringify(resultado));
-    return NextResponse.json(resultado);
+    console.log('arquivar-expedidos', JSON.stringify({ fechamento, ...resultado }));
+    return NextResponse.json({ fechamento, ...resultado });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
